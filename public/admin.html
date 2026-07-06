@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>local-harness</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --border: #2d3644;
+    --text: #e6edf3; --muted: #8b98a9; --accent: #4da3ff; --green: #3fb950;
+    --red: #f85149; --yellow: #d29922; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 16px 28px;
+           border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .logo { width: 30px; height: 30px; border-radius: 8px; flex: none;
+          background: linear-gradient(135deg, #4da3ff, #9a6bff);
+          display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  main { max-width: 940px; margin: 0 auto; padding: 24px 28px 90px; }
+  h2 { font-size: 16px; margin: 36px 0 4px; }
+  h2:first-of-type { margin-top: 10px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+          padding: 16px 18px; margin-bottom: 12px; }
+  .card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #555; flex: none; }
+  .dot.up { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.down { background: var(--red); }
+  .dot.off { background: #444; }
+  .card-name { font-weight: 600; font-size: 14.5px; }
+  .card-status { color: var(--muted); font-size: 12.5px; }
+  .card-status.good { color: var(--green); }
+  .card-status.warn { color: var(--yellow); }
+  .grow { flex: 1; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 9px; font-size: 13px; }
+  input[type=text], input[type=password] { font-family: var(--mono); font-size: 12.5px; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+           border-radius: 6px; padding: 7px 14px; cursor: pointer; font-size: 13px; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #04121f; font-weight: 600; }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .switch { position: relative; width: 38px; height: 21px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: #39414e; border-radius: 21px; transition: .15s; cursor: pointer; }
+  .slider:before { content: ""; position: absolute; width: 15px; height: 15px; left: 3px; top: 3px;
+                   background: #cfd8e3; border-radius: 50%; transition: .15s; }
+  .switch input:checked + .slider { background: var(--green); }
+  .switch input:checked + .slider:before { transform: translateX(17px); }
+  pre.snippet { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+                padding: 14px; overflow-x: auto; font-family: var(--mono); font-size: 12px;
+                white-space: pre; margin: 6px 0 0; }
+  .snippet-wrap { position: relative; }
+  .snippet-wrap .copy { position: absolute; top: 12px; right: 8px; font-size: 11px; padding: 3px 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
+  th { color: var(--muted); font-weight: 500; font-family: inherit; }
+  td.err { color: var(--red); }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px;
+           background: var(--panel2); border: 1px solid var(--border); }
+  .muted { color: var(--muted); }
+  .steps { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
+  .steps li { margin-bottom: 4px; }
+  .steps code, .hint code, .detail code, .setup code, td code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-family: var(--mono); font-size: 12px; }
+  .setup { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 12px; display: grid; gap: 14px; }
+  .setup-step { display: flex; gap: 12px; align-items: flex-start; }
+  .st { width: 22px; height: 22px; border-radius: 50%; background: var(--panel2);
+        border: 1px solid var(--border); display: flex; align-items: center;
+        justify-content: center; font-size: 12px; flex: none; margin-top: 1px; }
+  .st.ok { background: rgba(63,185,80,.15); border-color: var(--green); color: var(--green); }
+  .st.todo { background: rgba(210,153,34,.12); border-color: var(--yellow); color: var(--yellow); }
+  .setup-step b { font-size: 13px; }
+  .detail { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .detail a { color: var(--accent); }
+  .cmd { font-family: var(--mono); font-size: 12px; background: var(--bg);
+         border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px;
+         display: inline-flex; gap: 10px; align-items: center; margin-top: 6px; flex-wrap: wrap; max-width: 100%; }
+  .cmd button { padding: 1px 8px; font-size: 11px; }
+  .inline-msg { font-size: 12px; color: var(--yellow); margin-left: 8px; }
+  .inline-msg.ok { color: var(--green); }
+  .fields { display: grid; gap: 6px; margin: 8px 0; }
+  .field-row { display: flex; align-items: center; gap: 8px; }
+  .field-row .fname { width: 74px; flex: none; color: var(--muted); font-size: 12px; }
+  .field-row .cmd { flex: 1; margin-top: 0; justify-content: space-between; }
+  .tool-tabs { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .tool-tabs button { font-size: 12px; padding: 5px 11px; border-radius: 14px; color: var(--muted); }
+  .tool-tabs button.active { background: var(--accent); color: #04121f; border-color: var(--accent); font-weight: 600; }
+  .native-note { font-size: 12px; color: var(--green); background: rgba(63,185,80,.08);
+                 border: 1px solid rgba(63,185,80,.3); border-radius: 6px; padding: 6px 10px; margin-top: 12px; }
+  .warn-note { font-size: 12px; color: var(--yellow); background: rgba(210,153,34,.08);
+               border: 1px solid rgba(210,153,34,.35); border-radius: 6px; padding: 8px 11px; margin: 10px 0; }
+  .warn-note b { color: #e9b949; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  @media (max-width: 620px) { .form-grid { grid-template-columns: 1fr; } }
+  details.adv { margin-top: 40px; border-top: 1px solid var(--border); padding-top: 6px; }
+  details.adv > summary { cursor: pointer; font-size: 15px; font-weight: 600; padding: 10px 0; list-style: none; color: var(--text); }
+  details.adv > summary::-webkit-details-marker { display: none; }
+  details.adv > summary:before { content: '▸'; color: var(--muted); margin-right: 8px; font-size: 12px; }
+  details.adv[open] > summary:before { content: '▾'; }
+  .adv-body { padding-top: 6px; }
+  .savebar { position: sticky; bottom: 0; margin-top: 16px; padding: 12px 0;
+             background: linear-gradient(transparent, var(--bg) 35%); display: flex; gap: 10px; align-items: center; }
+  #saveMsg { font-size: 13px; }
+  #saveMsg.ok { color: var(--green); } #saveMsg.err { color: var(--red); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">⇄</div>
+  <div>
+    <h1>local-harness</h1>
+    <div class="sub">Use the AI subscriptions and local models you already have, inside VS Code, Claude Code &amp; the terminal — privately, on your own machine.</div>
+  </div>
+</header>
+<main>
+
+  <h2>Your AI subscriptions</h2>
+  <p class="hint">Have a Claude or Gemini subscription? Sign in below and this page shows you exactly how to use it in your coding tools — as an <b>extra</b> option that never touches the models already built into those tools.</p>
+  <div id="subscriptions"></div>
+
+  <h2>Your local model</h2>
+  <p class="hint">Running a model on your own machine (Ollama, LM Studio, vLLM, …)? Enter its address and this page shows how to use it in your tools. Everything stays on your computer — it never touches the internet.</p>
+  <div id="localModels"></div>
+  <button id="addLocal">+ Add another local model</button>
+
+  <h2>More options <span class="muted" style="font-weight:400;font-size:12.5px">(advanced — use a browser login)</span></h2>
+  <p class="hint">For subscriptions with <b>no official sign-in for tools</b> (Gemini when your account can't use its CLI, and Perplexity). These use unofficial helpers that reuse your <b>browser login</b> — more powerful, but riskier: you're handing a full-account login to third-party software. Prefer a spare account if you can. Step-by-step below.</p>
+  <div id="wrappers"></div>
+
+  <details class="adv">
+    <summary>Advanced settings</summary>
+    <div class="adv-body">
+
+      <h2 style="margin-top:14px">All-in-one config for your tools</h2>
+      <p class="hint">Once you've turned on more than one thing above, this bundles <b>everything you've enabled</b> into a single config blob per tool. For a single subscription/model, use the guided steps in its card instead.</p>
+      <div class="tool-tabs" id="bundleTabs">
+        <button data-tab="vscode" class="active">VS Code</button>
+        <button data-tab="claudeCode">Claude Code</button>
+        <button data-tab="opencode">OpenCode</button>
+        <button data-tab="curl">curl test</button>
+      </div>
+      <div class="snippet-wrap">
+        <button class="copy" id="copySnippet">Copy</button>
+        <pre class="snippet" id="snippet"></pre>
+      </div>
+      <ol class="steps" id="snippetSteps"></ol>
+
+      <h2>Request logging</h2>
+      <p class="hint">Optional. The gateway can tag each request with your name/label and keep a local log of what went where (<code>logs/audit.jsonl</code>) — handy for your own record-keeping. Never leaves your machine.</p>
+      <div class="card">
+        <div class="form-grid">
+          <div><label>Your name or ID (tag added to each request)</label><input type="text" id="devId"></div>
+          <div><label>Project label</label><input type="text" id="project"></div>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <label class="switch"><input type="checkbox" id="auditEnabled"><span class="slider"></span></label>
+          <span>Tag each request with the name/label above</span>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <label class="switch"><input type="checkbox" id="logToFile"><span class="slider"></span></label>
+          <span>Keep a local log file of requests</span>
+        </div>
+      </div>
+
+      <h2>Gateway port</h2>
+      <p class="hint">The address this page and your tools use. Changing it needs a restart of the gateway.</p>
+      <div class="card"><div style="max-width:220px"><label>Port</label><input type="number" id="port"></div></div>
+
+      <h2>Raw connections <span class="muted" style="font-weight:400;font-size:12.5px">(power users)</span></h2>
+      <p class="hint">Every route the gateway serves, with all fields exposed — including custom HTTP backends and the GitHub Copilot wrapper. Most people never need this; the cards above manage these for you.</p>
+      <div id="lanes"></div>
+      <button id="addLane">+ Add a raw connection</button>
+
+      <div class="savebar">
+        <button class="primary" id="save">Save advanced changes</button>
+        <button id="reload">Discard</button>
+        <span id="saveMsg"></span>
+      </div>
+    </div>
+  </details>
+
+  <h2>Recent activity</h2>
+  <p class="hint">Requests that have flowed through the gateway (auto-refreshes). Nothing here for the browser-login options above — those don't go through the gateway.</p>
+  <div class="card" style="padding:0; overflow-x:auto">
+    <table>
+      <thead><tr><th>time</th><th>service</th><th>method</th><th>path</th><th>model</th><th>status</th><th>ms</th><th>bytes</th></tr></thead>
+      <tbody id="logBody"><tr><td colspan="8" class="muted">no requests yet</td></tr></tbody>
+    </table>
+  </div>
+
+</main>
+<script>
+'use strict';
+let cfg = null;          // working copy the forms edit
+let health = {};         // laneId -> health result
+let bundleTab = 'vscode';
+let toolTab = {};        // per-card selected tool tab
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const gatewayBase = () => `http://localhost:${cfg ? cfg.port : location.port}`;
+
+async function api(path, opts = {}) {
+  // Token embedded by the gateway into this page when it served /admin?token=...
+  const headers = { ...(opts.headers || {}), 'x-admin-token': window.__ADMIN_TOKEN__ || '' };
+  const res = await fetch(path, { ...opts, headers });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.details ? data.details.join('; ') : (data.error || res.status));
+  return data;
+}
+
+async function saveConfig() {
+  return api('/admin/api/config', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify(cfg) });
+}
+
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const old = btn.textContent; btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  });
+}
+
+// Lanes that are "local models" for the friendly section: plain HTTP backends
+// that aren't the special browser-cookie or Copilot-wrapper routes.
+const SPECIAL_IDS = new Set(['gemini-web', 'copilot']);
+const isLocalModelLane = (l) => (l.type || 'proxy') === 'proxy' && !SPECIAL_IDS.has(l.id);
+const isCliLane = (l) => l.type === 'claude-cli' || l.type === 'gemini-cli';
+
+// =========================================================================
+// "Use it in your tools" — shared instruction block (VS Code / Claude / …)
+
+function fieldRow(name, value) {
+  return `<div class="field-row"><span class="fname">${esc(name)}</span>
+    <span class="cmd" style="flex:1">${esc(value)} <button onclick="copyText('${esc(value)}', this)">copy</button></span></div>`;
+}
+
+function toolInstructions(lane, tool) {
+  const url = `${gatewayBase()}${lane.prefix}/v1`;
+  const modelList = (lane.models || []).join(', ');
+  if (tool === 'vscode') {
+    return `<ol class="steps">
+      <li>Open <b>Copilot Chat</b> → click the model picker at the top → <b>“Manage Models…”</b> (some versions say <b>“Other Models”</b>).</li>
+      <li>Choose <b>“Add a custom OpenAI-compatible model”</b>, then paste:</li>
+    </ol>
+    <div class="fields">${fieldRow('Address', url)}${fieldRow('API key', 'dummy')}</div>
+    <ol class="steps" start="3">
+      <li>VS Code lists the available models${modelList ? ' (' + esc(modelList) + ')' : ' it finds on that address'}. Tick the ones you want.</li>
+      <li>They appear in the picker <b>next to</b> your existing models — nothing is replaced.</li>
+    </ol>`;
+  }
+  if (tool === 'claudeCode') {
+    const baseURL = `${gatewayBase()}${lane.prefix}`;
+    const settingsJson = JSON.stringify({ env: {
+      ANTHROPIC_BASE_URL: baseURL,
+      ANTHROPIC_API_KEY: 'local-key',
+    } }, null, 2);
+    return `<ol class="steps">
+      <li>Install Claude Code if you haven't: <code>npm install -g @anthropic-ai/claude-code --ignore-scripts</code></li>
+      <li>Add to <code>~/.claude/settings.json</code> (create if it doesn't exist):</li>
+    </ol>
+    <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(settingsJson)}</pre></div>
+    <ol class="steps" start="3">
+      <li>Run <code>claude</code>. Every chat turn is sent to <b>${esc(lane.name)}</b> at <code>${esc(baseURL)}</code> — the local model answers, not Anthropic’s cloud.</li>
+    </ol>
+    <div class="detail" style="margin-top:6px">The gateway translates Anthropic’s Messages API (<code>/v1/messages</code>) to OpenAI Chat Completions automatically. The API key value is ignored by the gateway — any non-empty string works.</div>`;
+  }
+  if (tool === 'opencode') {
+    const snippet = JSON.stringify({ $schema: 'https://opencode.ai/config.json', provider: {
+      [`harness-${lane.id}`]: { npm: '@ai-sdk/openai-compatible', name: lane.name,
+        options: { baseURL: url }, models: { default: { name: `${lane.name} (via gateway)` } } },
+    } }, null, 2);
+    return `<ol class="steps"><li>Save as <code>opencode.json</code> in your project root:</li></ol>
+    <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(snippet)}</pre></div>
+    <ol class="steps" start="2"><li>Run <code>opencode</code> → <code>/models</code> → pick <b>${esc(lane.name)}</b>.</li></ol>`;
+  }
+  const model = lane.defaultModel || (lane.models || [])[0];
+  const placeholder = 'PUT-YOUR-MODEL-NAME-HERE';
+  const snippet = `curl -s ${url}/chat/completions \\\n  -H 'content-type: application/json' \\\n  -d '{"model":"${model || placeholder}","messages":[{"role":"user","content":"Say hello in 5 words"}]}'`;
+  const modelWarning = model ? '' : `<div class="warn-note">⚠️ We don't know your model's exact name yet — <code>${placeholder}</code> below is a placeholder, this will fail as-is. Click <b>Test connection</b> above once your server is running (this fills it in automatically), or check your backend's own docs/console for the exact model id.</div>`;
+  return `${modelWarning}<div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(snippet)}</pre></div>
+    <p class="detail" style="margin-top:8px">A quick way to check it works. The request then shows up in “Recent activity” at the bottom of this page.</p>`;
+}
+
+function toolTabsHTML(lane, displayName) {
+  const name = displayName || lane.name;
+  const tool = toolTab[lane.id] || 'vscode';
+  const tabs = [['vscode', 'VS Code'], ['claudeCode', 'Claude Code'], ['opencode', 'OpenCode'], ['curl', 'Test with curl']];
+  return `<div class="tool-tabs" data-tool-tabs="${lane.id}">
+      ${tabs.map(([id, label]) => `<button data-tool="${id}" class="${tool === id ? 'active' : ''}">${label}</button>`).join('')}
+    </div>
+    <div>${toolInstructions(lane, tool)}</div>
+    <div class="native-note">✓ Adds ${esc(name)} as an extra choice only — every model already in your tools keeps working exactly as before.</div>`;
+}
+
+// =========================================================================
+// Section 1 — subscriptions (Claude / Gemini via official sign-in) + Copilot
+
+const CLI_META = {
+  'claude-cli': {
+    provider: 'Claude',
+    installCmd: 'npm install -g @anthropic-ai/claude-code --ignore-scripts',
+    loginVerb: 'Sign in to Claude',
+    loginExplain: 'Opens a terminal running <code>claude</code>. Type <code>/login</code> and finish signing in with your Claude subscription in the browser. Your password never touches this page — the official app holds the login.',
+  },
+  'gemini-cli': {
+    provider: 'Gemini',
+    installCmd: 'npm install -g @google/gemini-cli --ignore-scripts',
+    loginVerb: 'Sign in to Gemini',
+    loginExplain: 'Opens a terminal running <code>gemini</code>. Sign in with the Google account that has your subscription.',
+    knownIssue: 'Some Google accounts can\'t finish this sign-in — it\'s a Google-side limitation (their "Code Assist" access), not something wrong with your password or this page, and retrying step 2 won\'t fix it. If it keeps failing or flickers between "signed in" and "not signed in", switch to the <b>Gemini — browser login</b> card under “More options” below — it works around this entirely.',
+  },
+};
+
+// Track the last few health readings per item so a single flaky poll (or an
+// account stuck in a genuinely unstable sign-in loop) doesn't make the
+// status confidently flip between "ready" and "not ready" every few seconds.
+const HEALTH_HISTORY_LEN = 4;
+let healthHistory = {}; // id -> recent [{up, loggedIn}]
+function recordHealthHistory(id, h) {
+  const arr = healthHistory[id] || (healthHistory[id] = []);
+  arr.push({ up: !!(h && h.up), loggedIn: !!(h && h.loggedIn) });
+  if (arr.length > HEALTH_HISTORY_LEN) arr.shift();
+}
+function isFlaky(id) {
+  const arr = healthHistory[id] || [];
+  if (arr.length < 3) return false;
+  return new Set(arr.map((x) => x.loggedIn)).size > 1 || new Set(arr.map((x) => x.up)).size > 1;
+}
+
+function subStatus(lane, h) {
+  if (!lane.enabled) return { text: 'not set up yet', cls: '' };
+  if (!h) return { text: 'checking…', cls: '' };
+  if (isFlaky(lane.id)) return { text: 'connection keeps flickering — see the note below', cls: 'warn', flaky: true };
+  if (!h.up) return { text: 'app not installed — do step 1', cls: 'warn' };
+  if (h.loggedIn) return { text: `signed in${h.account ? ' as ' + h.account : ''} — ready to use`, cls: 'good' };
+  return { text: 'installed, but not signed in — do step 2', cls: 'warn' };
+}
+
+function subscriptionCard(lane) {
+  const meta = CLI_META[lane.type];
+  const h = health[lane.id];
+  const appOk = !!(h && h.up);
+  const loggedIn = !!(h && h.loggedIn);
+  const st = subStatus(lane, h);
+  return `<div class="card">
+    <div class="card-head">
+      <span class="dot ${loggedIn && st.cls === 'good' ? 'up' : (lane.enabled && appOk ? 'down' : 'off')}"></span>
+      <span class="card-name">${esc(meta.provider)}</span>
+      <span class="card-status ${st.cls}">${esc(st.text)}</span>
+    </div>
+    <div class="setup">
+      <div class="setup-step">
+        <div class="st ${appOk ? 'ok' : 'todo'}">${appOk ? '✓' : '1'}</div>
+        <div style="flex:1">
+          <b>Install the ${esc(meta.provider)} app</b>
+          <div class="detail">${appOk ? `Installed${h.version ? ' — ' + esc(h.version) : ''}.` : 'Run this once in a terminal:'}</div>
+          ${appOk ? '' : `<div class="cmd">${esc(meta.installCmd)} <button onclick="copyText('${esc(meta.installCmd)}', this)">copy</button></div>`}
+        </div>
+      </div>
+      <div class="setup-step">
+        <div class="st ${loggedIn && st.cls === 'good' ? 'ok' : 'todo'}">${loggedIn && st.cls === 'good' ? '✓' : '2'}</div>
+        <div style="flex:1">
+          <b>${esc(meta.loginVerb)}</b> <span class="inline-msg ${st.cls === 'good' ? 'ok' : ''}">${st.cls === 'good' ? esc(st.text) : ''}</span>
+          <div class="detail">${meta.loginExplain}</div>
+          <button data-login-lane="${lane.id}" ${appOk ? '' : 'disabled title="install the app first"'}>${esc(meta.loginVerb)}</button>
+          <span class="inline-msg" id="loginMsg-${lane.id}"></span>
+          ${meta.knownIssue && st.cls !== 'good' && appOk ? `<div class="warn-note" style="margin-top:8px">💡 ${meta.knownIssue}</div>` : ''}
+        </div>
+      </div>
+      <div class="setup-step">
+        <div class="st ${lane.enabled && loggedIn ? 'ok' : 'todo'}">${lane.enabled && loggedIn ? '✓' : '3'}</div>
+        <div style="flex:1">
+          <div class="row" style="justify-content:space-between">
+            <b>Use it in your tools</b>
+            <label class="row" style="gap:6px"><span class="muted" style="font-size:12px">turn on</span><label class="switch"><input type="checkbox" data-quick-enable="${lane.id}" ${lane.enabled ? 'checked' : ''}><span class="slider"></span></label></label>
+          </div>
+          ${lane.enabled ? toolTabsHTML(lane, meta.provider) : '<div class="detail">Flip the switch to turn this on, then instructions for VS Code, Claude Code and the terminal appear here.</div>'}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function copilotCard() {
+  return `<div class="card">
+    <div class="card-head">
+      <span class="dot up"></span>
+      <span class="card-name">GitHub Copilot</span>
+      <span class="card-status good">already built into VS Code — nothing to set up</span>
+    </div>
+    <div class="detail" style="margin-top:8px">
+      Your Copilot subscription already works natively in VS Code's chat — its models (GPT-4o, and Copilot's own Claude/Gemini options) are in the model picker out of the box. <b>You don't need this tool for Copilot.</b>
+      local-harness is for adding <i>other</i> things next to it: a model running on your own machine, or a Claude/Gemini subscription VS Code doesn't already show.
+      <div class="detail" style="margin-top:8px">Advanced: routing a separate Copilot subscription <i>through</i> the gateway needs a third-party helper on port 4141 — see “Raw connections” under Advanced settings. Rarely worth it.</div>
+    </div>
+  </div>`;
+}
+
+function renderSubscriptions() {
+  const subs = cfg.lanes.filter((l) => CLI_META[l.type]);
+  $('subscriptions').innerHTML = subs.map(subscriptionCard).join('') + copilotCard();
+  wireCardEvents('#subscriptions');
+}
+
+// =========================================================================
+// Section 2 — local models (friendly form, no jargon)
+
+function localStatus(lane, h) {
+  if (!lane.enabled) return { text: 'turned off', cls: '' };
+  if (!lane.target) return { text: 'enter an address below', cls: 'warn' };
+  if (!h) return { text: 'checking…', cls: '' };
+  if (h.up) return { text: `reachable${h.latencyMs != null ? ' · ' + h.latencyMs + ' ms' : ''} — ready to use`, cls: 'good' };
+  return { text: 'not reachable — is the model server running?', cls: 'warn' };
+}
+
+function localCard(lane) {
+  const h = health[lane.id];
+  const st = localStatus(lane, h);
+  const reachable = !!(h && h.up);
+  const url = `${gatewayBase()}${lane.prefix}/v1`;
+  return `<div class="card" data-local="${esc(lane.id)}">
+    <div class="card-head">
+      <span class="dot ${!lane.enabled ? 'off' : (reachable ? 'up' : 'down')}"></span>
+      <span class="card-name">${esc(lane.name || 'Local model')}</span>
+      <span class="card-status ${st.cls}">${esc(st.text)}</span>
+      <div class="grow"></div>
+      <label class="row" style="gap:6px"><span class="muted" style="font-size:12px">turn on</span><label class="switch"><input type="checkbox" data-lf="enabled" ${lane.enabled ? 'checked' : ''}><span class="slider"></span></label></label>
+      <button class="danger" data-local-remove="${esc(lane.id)}" title="remove">✕</button>
+    </div>
+    <div class="form-grid">
+      <div><label>Name (anything you like)</label><input type="text" data-lf="name" value="${esc(lane.name || '')}" placeholder="My local model"></div>
+      <div><label>Address of the model server</label><input type="text" data-lf="target" value="${esc(lane.target || '')}" placeholder="http://localhost:11434"></div>
+      <div class="full"><label>API key <span class="muted">(only if your server needs one — usually leave blank)</span></label><input type="password" data-lf="apiKey" value="${esc(lane.apiKey || '')}" placeholder=""></div>
+    </div>
+    <div class="detail" style="margin-top:8px">Common addresses — Ollama: <code>http://localhost:11434</code> · LM Studio: <code>http://localhost:1234</code> · vLLM: <code>http://localhost:8000</code></div>
+    <div class="row" style="margin-top:10px">
+      <button data-local-test="${esc(lane.id)}">Test connection</button>
+      <span class="inline-msg" id="localTest-${esc(lane.id)}"></span>
+    </div>
+    ${lane.enabled && reachable ? `<div class="setup" style="border-top:1px dashed var(--border);margin-top:14px">
+      <div class="setup-step"><div class="st ok">✓</div><div style="flex:1"><b>Use it in your tools</b>${toolTabsHTML(lane)}</div></div>
+    </div>` : lane.enabled ? '<div class="detail" style="margin-top:10px">Once it\'s reachable (green), instructions for your tools appear here.</div>' : ''}
+  </div>`;
+}
+
+function renderLocalModels() {
+  const locals = cfg.lanes.filter(isLocalModelLane);
+  $('localModels').innerHTML = locals.length
+    ? locals.map(localCard).join('')
+    : '<p class="hint">None yet — click “Add another local model” below.</p>';
+  wireCardEvents('#localModels');
+
+  document.querySelectorAll('#localModels [data-lf]').forEach((el) => {
+    const laneId = el.closest('[data-local]').dataset.local;
+    const lane = cfg.lanes.find((l) => l.id === laneId);
+    el.addEventListener('change', async () => {
+      const f = el.dataset.lf;
+      lane[f] = el.type === 'checkbox' ? el.checked : el.value;
+      try { await saveConfig(); } catch (e) { alert('Could not save: ' + e.message); }
+      renderLocalModels(); renderBundle(); refreshHealth();
+    });
+  });
+  document.querySelectorAll('#localModels [data-local-remove]').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.localRemove;
+      if (!confirm('Remove this local model?')) return;
+      cfg.lanes = cfg.lanes.filter((l) => l.id !== id);
+      try { await saveConfig(); } catch (e) { alert('Could not save: ' + e.message); }
+      renderLocalModels(); renderBundle();
+    };
+  });
+  document.querySelectorAll('#localModels [data-local-test]').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.localTest;
+      const lane = cfg.lanes.find((l) => l.id === id);
+      const msg = $('localTest-' + id);
+      msg.textContent = 'testing…'; msg.className = 'inline-msg';
+      try { await saveConfig(); } catch {}
+      await refreshHealth();
+      const h = health[id];
+      if (h && h.up) {
+        const found = await discoverModels(lane);
+        msg.textContent = `✓ reachable${h.latencyMs != null ? ' (' + h.latencyMs + ' ms)' : ''}`
+          + (found ? ` — found model${lane.models.length > 1 ? 's' : ''}: ${lane.models.join(', ')}` : ' — no models reported by /v1/models yet');
+        msg.className = 'inline-msg ok';
+      } else {
+        msg.textContent = '✗ ' + (h && h.error ? h.error : 'not reachable');
+        msg.className = 'inline-msg';
+      }
+      renderLocalModels();
+    };
+  });
+}
+
+// Ask the backend (through the gateway) what models it actually serves, so
+// generated snippets use a real model id instead of a guessed placeholder.
+// Safe to call repeatedly — proxy lanes don't otherwise read .models/.defaultModel
+// server-side, this is purely for the GUI's own instructions.
+const modelDiscoveryAttempted = new Set();
+async function discoverModels(lane) {
+  try {
+    const res = await fetch(`${gatewayBase()}${lane.prefix}/v1/models`);
+    if (!res.ok) return false;
+    const body = await res.json();
+    const ids = (body.data || []).map((m) => m && m.id).filter(Boolean);
+    if (!ids.length) return false;
+    lane.models = ids;
+    lane.defaultModel = ids[0];
+    await saveConfig();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    modelDiscoveryAttempted.add(lane.id);
+  }
+}
+
+$('addLocal').onclick = async () => {
+  let n = 1;
+  while (cfg.lanes.some((l) => l.id === `local${n === 1 ? '' : n}`)) n++;
+  const id = `local${n === 1 ? '' : n}`;
+  cfg.lanes.push({ id, name: 'My local model', prefix: `/${id}`, type: 'proxy',
+    target: '', enabled: false, stripPrefix: true, apiKey: '', healthPath: '/v1/models' });
+  renderLocalModels(); renderBundle();
+  document.querySelector(`[data-local="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+// =========================================================================
+// Shared card wiring: quick-enable switches, tool tabs, login buttons
+
+function wireCardEvents(scope) {
+  document.querySelectorAll(`${scope} [data-quick-enable]`).forEach((el) => {
+    el.addEventListener('change', async (e) => {
+      const lane = cfg.lanes.find((l) => l.id === e.target.dataset.quickEnable);
+      lane.enabled = e.target.checked;
+      try { await saveConfig(); } catch {}
+      renderSubscriptions(); renderBundle(); refreshHealth();
+    });
+  });
+  document.querySelectorAll(`${scope} [data-tool-tabs]`).forEach((wrap) => {
+    wrap.querySelectorAll('button').forEach((b) => {
+      b.onclick = () => {
+        toolTab[wrap.dataset.toolTabs] = b.dataset.tool;
+        renderSubscriptions(); renderLocalModels();
+      };
+    });
+  });
+  document.querySelectorAll(`${scope} [data-login-lane]`).forEach((btn) => {
+    btn.onclick = async () => {
+      const laneId = btn.dataset.loginLane;
+      const msg = $('loginMsg-' + laneId);
+      btn.disabled = true;
+      try {
+        const r = await api(`/admin/api/lanes/${laneId}/login`, { method: 'POST' });
+        msg.textContent = r.launched ? `Opened a terminal — finish signing in there.` : r.manual;
+        let ticks = 0;
+        const iv = setInterval(async () => {
+          await refreshHealth(); ticks++;
+          if (ticks > 30 || (health[laneId] && health[laneId].loggedIn)) clearInterval(iv);
+        }, 4000);
+      } catch (e) {
+        msg.textContent = '✗ ' + e.message;
+      } finally { btn.disabled = false; }
+    };
+  });
+}
+
+// =========================================================================
+// Section 3 — browser-login helpers (Gemini web + Perplexity)
+
+const GEMINI_WEB_LANE = {
+  id: 'gemini-web', name: 'Gemini (browser login)', prefix: '/gemini-web',
+  type: 'proxy', target: 'http://127.0.0.1:8000', enabled: false, stripPrefix: true,
+  apiKey: '', healthPath: '/health',
+  notes: 'Unofficial wrapper (Nativu5/Gemini-FastAPI) — cookie goes into that project, never here.',
+};
+const GEMINI_DOCKER_CMD = `docker run -p 8000:8000 \\
+  -e CONFIG_GEMINI__CLIENTS__0__SECURE_1PSID="PASTE_YOUR___Secure-1PSID" \\
+  -e CONFIG_GEMINI__CLIENTS__0__SECURE_1PSIDTS="PASTE_YOUR___Secure-1PSIDTS" \\
+  ghcr.io/nativu5/gemini-fastapi`;
+const PERPLEXITY_MCP_JSON = JSON.stringify({
+  inputs: [{ type: 'promptString', id: 'perplexity-cookies', description: 'Perplexity cookies as JSON, e.g. {"next-auth.session-token": "..."}', password: true }],
+  servers: { perplexity: { type: 'stdio', command: 'perplexity-mcp', env: { PERPLEXITY_COOKIES: '${input:perplexity-cookies}' } } },
+}, null, 2);
+
+function geminiWebCard() {
+  const lane = cfg.lanes.find((l) => l.id === 'gemini-web');
+  const enabled = !!(lane && lane.enabled);
+  const h = lane && health[lane.id];
+  const up = !!(h && h.up);
+  const stTxt = !lane ? 'not set up' : enabled ? (up ? 'helper reachable — ready' : 'on — waiting for the helper on :8000') : 'not set up';
+  return `<div class="card">
+    <div class="card-head">
+      <span class="dot ${!enabled ? 'off' : (up ? 'up' : 'down')}"></span>
+      <span class="card-name">Gemini — browser login</span>
+      <span class="card-status ${enabled && up ? 'good' : (enabled ? 'warn' : '')}">${stTxt}</span>
+    </div>
+    <div class="warn-note">⚠️ Reuses your <b>Google account</b> login cookie — that's full-account access and likely skips 2FA. Use a spare account if you can. The cookie goes into the helper below, <b>never</b> into this page.</div>
+    <div class="setup">
+      <div class="setup-step"><div class="st todo">1</div><div style="flex:1">
+        <b>Start the helper</b> — <a href="https://github.com/Nativu5/Gemini-FastAPI" target="_blank" rel="noopener">Nativu5/Gemini-FastAPI</a>. With Docker:
+        <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(GEMINI_DOCKER_CMD)}</pre></div>
+      </div></div>
+      <div class="setup-step"><div class="st todo">2</div><div style="flex:1">
+        <b>Get your cookie values</b>
+        <div class="detail">Open <code>gemini.google.com</code> → press F12 → Application → Cookies → copy <code>__Secure-1PSID</code> and <code>__Secure-1PSIDTS</code> into the command above (replace the PASTE_… bits). Never paste them into this page.</div>
+      </div></div>
+      <div class="setup-step"><div class="st ${enabled && up ? 'ok' : 'todo'}">${enabled && up ? '✓' : '3'}</div><div style="flex:1">
+        <div class="row" style="justify-content:space-between">
+          <b>Turn it on</b>
+          <label class="row" style="gap:6px"><span class="muted" style="font-size:12px">turn on</span><label class="switch"><input type="checkbox" id="wrapEnableGemini" ${enabled ? 'checked' : ''}><span class="slider"></span></label></label>
+        </div>
+        <div class="detail">Turns green once the helper answers on :8000. Then use it in VS Code from its <b>Address</b>: <code>${esc(gatewayBase())}/gemini-web/v1</code> (same steps as any local model).</div>
+      </div></div>
+    </div>
+  </div>`;
+}
+
+function perplexityCard() {
+  return `<div class="card">
+    <div class="card-head">
+      <span class="dot off"></span>
+      <span class="card-name">Perplexity — search tool for VS Code</span>
+      <span class="card-status">set up inside VS Code, not through this gateway</span>
+    </div>
+    <div class="warn-note">⚠️ Reuses your Perplexity login cookie — full-account access, same risk as above. This one is set up directly in VS Code, so it won't show in “Recent activity”.</div>
+    <div class="setup">
+      <div class="setup-step"><div class="st todo">1</div><div style="flex:1">
+        <b>Get the helper (no git needed)</b> — <a href="https://github.com/helallao/perplexity-ai" target="_blank" rel="noopener">helallao/perplexity-ai</a>. Download it (GitHub → green <b>Code</b> button → <b>Download ZIP</b>), unzip, then in that folder run:
+        <div class="cmd">pip install -e ".[mcp]" <button onclick="copyText('pip install -e &quot;.[mcp]&quot;', this)">copy</button></div>
+      </div></div>
+      <div class="setup-step"><div class="st todo">2</div><div style="flex:1">
+        <b>Add this to VS Code</b>
+        <div class="detail">Save as <code>.vscode/mcp.json</code> in your project. VS Code asks for the cookie in a hidden box and stores it itself — it's never written to the file.</div>
+        <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(PERPLEXITY_MCP_JSON)}</pre></div>
+      </div></div>
+      <div class="setup-step"><div class="st todo">3</div><div style="flex:1">
+        <b>Use it in Copilot Agent mode</b>
+        <div class="detail">Open Copilot Chat → Agent mode. On first use it asks for the cookie — from perplexity.ai → F12 → Application → Cookies, enter <code>{"next-auth.session-token": "..."}</code>. No cookie? It still works in free mode.</div>
+      </div></div>
+    </div>
+  </div>`;
+}
+
+function renderWrappers() {
+  $('wrappers').innerHTML = geminiWebCard() + perplexityCard();
+  const g = $('wrapEnableGemini');
+  if (g) g.addEventListener('change', async (e) => {
+    let lane = cfg.lanes.find((l) => l.id === 'gemini-web');
+    if (!lane) { lane = { ...GEMINI_WEB_LANE }; cfg.lanes.push(lane); }
+    lane.enabled = e.target.checked;
+    try { await saveConfig(); } catch (err) { alert('Could not save: ' + err.message); }
+    renderWrappers(); refreshHealth();
+  });
+}
+
+// =========================================================================
+// Advanced — raw connections editor (power users)
+
+function statusText(lane, h) {
+  if (!lane.enabled) return 'off';
+  if (!h) return 'checking…';
+  if (h.up) return h.version ? `found · ${h.version}` : `reachable · ${h.latencyMs} ms`;
+  return `unreachable · ${h.error || ''}`;
+}
+
+function laneCard(lane, i) {
+  const h = health[lane.id];
+  const dotCls = !lane.enabled ? 'off' : h ? (h.up ? 'up' : 'down') : '';
+  const cli = isCliLane(lane);
+  const typeSel = `<div><label>Type</label><select data-f="type">
+      <option value="proxy" ${!cli ? 'selected' : ''}>HTTP backend</option>
+      <option value="claude-cli" ${lane.type === 'claude-cli' ? 'selected' : ''}>Claude (claude CLI)</option>
+      <option value="gemini-cli" ${lane.type === 'gemini-cli' ? 'selected' : ''}>Gemini (gemini CLI)</option>
+    </select></div>`;
+  const fields = cli ? `
+      <div><label>CLI command</label><input type="text" data-f="command" value="${esc(lane.command || '')}"></div>
+      <div><label>Default model</label><input type="text" data-f="defaultModel" value="${esc(lane.defaultModel || '')}"></div>
+      <div><label>Models (comma-separated)</label><input type="text" data-f="models" value="${esc((lane.models || []).join(', '))}"></div>`
+    : `
+      <div><label>Backend address</label><input type="text" data-f="target" value="${esc(lane.target || '')}"></div>
+      <div><label>API key (optional)</label><input type="password" data-f="apiKey" value="${esc(lane.apiKey || '')}"></div>
+      <div><label>Health check path</label><input type="text" data-f="healthPath" value="${esc(lane.healthPath || '/v1/models')}"></div>`;
+  return `<div class="card" data-i="${i}">
+    <div class="card-head">
+      <span class="dot ${dotCls}"></span>
+      <span class="card-name">${esc(lane.name)}</span>
+      <span class="card-status">${esc(statusText(lane, h))}</span>
+      <div class="grow"></div>
+      <label class="switch" title="on/off"><input type="checkbox" data-f="enabled" ${lane.enabled ? 'checked' : ''}><span class="slider"></span></label>
+      <button class="danger" onclick="removeLane(${i})">✕</button>
+    </div>
+    <div class="form-grid">
+      <div><label>Name</label><input type="text" data-f="name" value="${esc(lane.name)}"></div>
+      <div><label>ID</label><input type="text" data-f="id" value="${esc(lane.id)}"></div>
+      <div><label>URL path</label><input type="text" data-f="prefix" value="${esc(lane.prefix)}"></div>
+      ${typeSel}
+      ${fields}
+    </div>
+    ${lane.notes ? `<div class="detail" style="margin-top:8px">💡 ${esc(lane.notes)}</div>` : ''}
+  </div>`;
+}
+
+function renderLanes() {
+  $('lanes').innerHTML = cfg.lanes.map(laneCard).join('');
+  document.querySelectorAll('#lanes [data-f]').forEach((el) => {
+    el.addEventListener('input', (e) => {
+      const i = +e.target.closest('.card').dataset.i;
+      const f = e.target.dataset.f;
+      const lane = cfg.lanes[i];
+      if (f === 'models') lane.models = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
+      else lane[f] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+      if (f === 'type') {
+        if (lane.type === 'claude-cli') { lane.command = lane.command || 'claude'; if (!lane.models?.length) { lane.models = ['sonnet','opus','haiku']; lane.defaultModel = 'sonnet'; } }
+        else if (lane.type === 'gemini-cli') { lane.command = (lane.command === 'claude' || !lane.command) ? 'gemini' : lane.command; if (!lane.models?.length) { lane.models = ['gemini-2.5-pro','gemini-2.5-flash']; lane.defaultModel = 'gemini-2.5-pro'; } }
+        else if (lane.type === 'proxy') lane.target = lane.target || 'http://127.0.0.1:9000';
+      }
+      if (f === 'enabled' || f === 'type') renderLanes();
+      renderBundle();
+    });
+  });
+}
+
+function removeLane(i) {
+  if (!confirm(`Remove "${cfg.lanes[i].name}"?`)) return;
+  cfg.lanes.splice(i, 1);
+  renderLanes(); renderBundle();
+}
+
+$('addLane').onclick = () => {
+  let n = cfg.lanes.length + 1;
+  cfg.lanes.push({ id: `conn${n}`, name: `Connection ${n}`, prefix: `/conn${n}`,
+    type: 'proxy', target: 'http://127.0.0.1:9000', enabled: false, stripPrefix: true,
+    apiKey: '', healthPath: '/v1/models', notes: '' });
+  renderLanes(); renderBundle();
+};
+
+// =========================================================================
+// Advanced — settings (logging, port) + all-in-one bundle
+
+function renderSettings() {
+  $('devId').value = cfg.audit.developerId || '';
+  $('project').value = cfg.audit.project || '';
+  $('port').value = cfg.port;
+  $('auditEnabled').checked = !!cfg.audit.enabled;
+  $('logToFile').checked = !!cfg.audit.logToFile;
+}
+['devId','project','port','auditEnabled','logToFile'].forEach((id) => {
+  $(id).addEventListener('input', () => {
+    cfg.audit.developerId = $('devId').value;
+    cfg.audit.project = $('project').value;
+    cfg.port = parseInt($('port').value, 10) || cfg.port;
+    cfg.audit.enabled = $('auditEnabled').checked;
+    cfg.audit.logToFile = $('logToFile').checked;
+  });
+});
+
+$('save').onclick = async () => {
+  const msg = $('saveMsg');
+  try { const r = await saveConfig(); msg.className = 'ok'; msg.textContent = '✓ ' + r.note; refreshHealth(); }
+  catch (e) { msg.className = 'err'; msg.textContent = '✗ ' + e.message; }
+};
+$('reload').onclick = () => load();
+
+function enabledLanes() { return cfg.lanes.filter((l) => l.enabled); }
+
+function bundleVSCode() {
+  const models = {};
+  for (const l of enabledLanes()) models[`harness-${l.id}`] = { name: l.name, url: `${gatewayBase()}${l.prefix}/v1/chat/completions`, toolCalling: true, requiresAPIKey: false };
+  return { code: JSON.stringify({ 'github.copilot.chat.customOAIModels': models }, null, 2),
+    steps: ['Merge into VS Code settings.json (older builds), or add each Address in Copilot Chat → Manage Models (newer builds).'] };
+}
+function bundleClaudeCode() {
+  const defaultLane = cfg.lanes.find((l) => l.enabled && (l.type || 'proxy') === 'proxy' && !SPECIAL_IDS.has(l.id));
+  const prefix = defaultLane ? defaultLane.prefix : `/${cfg.defaultLane || 'local'}`;
+  const baseURL = `${gatewayBase()}${prefix}`;
+  const settingsJson = JSON.stringify({ env: { ANTHROPIC_BASE_URL: baseURL, ANTHROPIC_API_KEY: 'local-key' } }, null, 2);
+  return { code: settingsJson,
+    steps: ['Save as <code>~/.claude/settings.json</code> (or merge the <code>env</code> block in). Run <code>claude</code> — it sends Anthropic-format requests to the gateway, which translates them to OpenAI and forwards to your local model.'] };
+}
+function bundleOpenCode() {
+  const provider = {};
+  for (const l of enabledLanes()) provider[`harness-${l.id}`] = { npm: '@ai-sdk/openai-compatible', name: l.name, options: { baseURL: `${gatewayBase()}${l.prefix}/v1` }, models: { default: { name: `${l.name} (via gateway)` } } };
+  return { code: JSON.stringify({ $schema: 'https://opencode.ai/config.json', provider }, null, 2),
+    steps: ['Save as <code>opencode.json</code>, run <code>opencode</code> → <code>/models</code>.'] };
+}
+function bundleCurl() {
+  const l = enabledLanes()[0];
+  const prefix = l ? l.prefix : '/local';
+  return { code: `curl -s ${gatewayBase()}${prefix}/v1/chat/completions \\\n  -H 'content-type: application/json' \\\n  -d '{"model":"MODEL","messages":[{"role":"user","content":"hi"}]}'`,
+    steps: ['Swap MODEL for one your backend serves. The request then shows in “Recent activity”.'] };
+}
+function renderBundle() {
+  const map = { vscode: bundleVSCode, claudeCode: bundleClaudeCode, opencode: bundleOpenCode, curl: bundleCurl };
+  const { code, steps } = map[bundleTab]();
+  $('snippet').textContent = code;
+  $('snippetSteps').innerHTML = steps.map((s) => `<li>${s}</li>`).join('');
+}
+document.querySelectorAll('#bundleTabs button').forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll('#bundleTabs button').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active'); bundleTab = b.dataset.tab; renderBundle();
+  };
+});
+$('copySnippet').onclick = () => copyText($('snippet').textContent, $('copySnippet'));
+
+// =========================================================================
+// Health + activity polling
+
+async function refreshHealth() {
+  try {
+    const r = await api('/admin/api/health');
+    health = Object.fromEntries(r.lanes.map((l) => [l.id, l]));
+    for (const id in health) recordHealthHistory(id, health[id]);
+
+    // Auto-discover model names for local models that are reachable but
+    // whose real model id we don't know yet — covers a backend (e.g. vLLM)
+    // that was already configured before this feature existed, with no
+    // extra click needed. Runs once per lane per page load; the "Test
+    // connection" button can always force a fresh attempt.
+    for (const lane of cfg.lanes.filter(isLocalModelLane)) {
+      const h = health[lane.id];
+      if (h && h.up && !lane.models?.length && !modelDiscoveryAttempted.has(lane.id)) {
+        discoverModels(lane).then((found) => { if (found) renderLocalModels(); });
+      }
+    }
+
+    renderSubscriptions();
+    if (!document.querySelector('#localModels input:focus')) renderLocalModels();
+    if (document.activeElement?.id !== 'wrapEnableGemini') renderWrappers();
+    // raw editor: update dots/status only, don't rebuild inputs
+    document.querySelectorAll('#lanes .card').forEach((card) => {
+      const lane = cfg.lanes[+card.dataset.i]; if (!lane) return;
+      const h = health[lane.id];
+      card.querySelector('.dot').className = 'dot ' + (!lane.enabled ? 'off' : h ? (h.up ? 'up' : 'down') : '');
+      card.querySelector('.card-status').textContent = statusText(lane, h);
+    });
+  } catch { /* gateway briefly busy */ }
+}
+
+async function refreshLogs() {
+  try {
+    const r = await api('/admin/api/logs?limit=50');
+    const rows = r.entries.slice().reverse().map((e) => `<tr>
+      <td>${esc((e.ts || '').slice(11, 19))}</td>
+      <td><span class="badge">${esc(e.lane)}</span></td>
+      <td>${esc(e.method)}</td>
+      <td>${esc(e.path)}</td>
+      <td>${esc(e.model || '—')}</td>
+      <td class="${!e.status || e.status >= 400 ? 'err' : ''}">${esc(e.status || 'ERR')}${e.error ? ' · ' + esc(e.error) : ''}</td>
+      <td>${esc(e.durationMs)}</td>
+      <td>${esc(e.bytesOut ?? '—')}</td>
+    </tr>`);
+    $('logBody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="8" class="muted">no requests yet</td></tr>';
+  } catch { /* ignore */ }
+}
+
+// =========================================================================
+// Boot
+
+async function load() {
+  cfg = await api('/admin/api/config');
+  renderSubscriptions(); renderLocalModels(); renderWrappers();
+  renderLanes(); renderSettings(); renderBundle();
+  refreshHealth(); refreshLogs();
+}
+load();
+setInterval(refreshHealth, 10000);
+setInterval(refreshLogs, 4000);
+</script>
+</body>
+</html>

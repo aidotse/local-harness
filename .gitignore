@@ -1,0 +1,18 @@
+# Secrets & machine-local state — NEVER commit these.
+# config.json holds the per-install admin token and any lane API keys.
+config.json
+# Logs hold the admin token (startup banner) and your request audit trail.
+logs/*
+!logs/.gitkeep
+# Background-process bookkeeping written by start.sh.
+.gateway.pid
+
+# Dependencies (there are none for the gateway, but keep this for safety).
+node_modules/
+
+# Python wrapper artifacts, if you clone one into this tree.
+__pycache__/
+*.pyc
+
+# OS cruft.
+.DS_Store

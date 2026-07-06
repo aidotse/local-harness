@@ -1,0 +1,28 @@
+// Drop this in as .vscode/mcp.json in any project (or merge into your VS
+// Code user-profile MCP config to make it available everywhere) to give
+// Copilot Agent mode a Perplexity search tool.
+//
+// This does NOT go through local-harness/the gateway — MCP servers are
+// configured per-editor, so this traffic won't appear in logs/audit.jsonl.
+// See README.md "Path 4" for full setup and why this carries more risk than
+// the claude/gemini lanes (it uses a full-account browser session cookie,
+// not a scoped token).
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "perplexity-cookies",
+      "description": "Perplexity session cookies as JSON, e.g. {\"next-auth.session-token\": \"...\"} — copy the next-auth.session-token cookie value from perplexity.ai in your browser's DevTools (Application > Cookies). Never share this value; it's a full-account credential.",
+      "password": true
+    }
+  ],
+  "servers": {
+    "perplexity": {
+      "type": "stdio",
+      "command": "perplexity-mcp",
+      "env": {
+        "PERPLEXITY_COOKIES": "${input:perplexity-cookies}"
+      }
+    }
+  }
+}
