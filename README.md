@@ -56,9 +56,8 @@ and the lane sections below.
      [vLLM](https://docs.vllm.ai), LM Studio, or anything OpenAI-compatible.
 
 The gateway itself has zero npm dependencies — `node gateway.js` just works.
-To use Claude or Gemini subscription lanes, you install their CLIs once; the
-dashboard shows the exact command and checks it off automatically. For a local
-model only, there is truly nothing else to install.
+For Claude/Gemini lanes, install each CLI once. For local-only usage, there is
+nothing else to install.
 
 ---
 
@@ -66,14 +65,13 @@ model only, there is truly nothing else to install.
 
 ### Step 1 — Start the gateway
 
-**Option A — foreground** (simplest; you see the logs live; Ctrl+C to stop):
+**Option A — foreground** (live logs, Ctrl+C to stop):
 
 ```bash
 node gateway.js
 ```
 
-**Option B — background** (recommended for daily use — survives closing the
-terminal):
+**Option B — background** (recommended for daily use):
 
 ```bash
 ./start.sh              # start in the background, port from config.json
@@ -83,11 +81,13 @@ terminal):
                         # since Node doesn't hot-reload
 ```
 
-`./start.sh` refuses to start a second instance by accident, confirms the
-gateway is actually answering before printing success, and never touches
-`config.json`. Logs go to `logs/gateway.log`; the PID lives in `.gateway.pid`.
-(Equivalent npm scripts: `npm run start:bg`, `npm run stop`, `npm run
-restart`; custom port with `npm run start:bg -- 4500`.)
+`./start.sh` prevents duplicate instances, waits for health, and does not edit
+`config.json`.
+
+- Logs: `logs/gateway.log`
+- PID file: `.gateway.pid`
+- npm equivalents: `npm run start:bg`, `npm run stop`, `npm run restart`
+- Custom port (npm): `npm run start:bg -- 4500`
 
 Either way, you'll see something like:
 
@@ -101,13 +101,11 @@ Either way, you'll see something like:
 
 ### Step 2 — Open the dashboard
 
-Open the URL from the startup banner — **the whole thing, `?token=...`
-included.** That token is a password for the dashboard: without it, anyone (or
-any webpage) that tries to open the admin page or its API is rejected. This is
-what stops a malicious website you happen to have open in another tab from
-silently reconfiguring your gateway. Once you've opened it correctly, the page
-remembers the token — you only need the full link the first time. Lost it?
-It's always in `logs/gateway.log`, or run `./restart.sh` to print it again.
+Open the full Admin GUI URL, including `?token=...`.
+
+- The token protects admin endpoints.
+- The browser remembers it after first open.
+- If lost, get it from `logs/gateway.log` or run `./restart.sh`.
 
 This page is your control room. It has four sections:
 
@@ -118,16 +116,14 @@ This page is your control room. It has four sections:
 | **Advanced settings** (collapsed) | Everything technical, hidden until you expand it: an all-in-one config bundle, request logging, the gateway port, and a raw route editor. Most people never open this. |
 | **Recent activity** | A live table of each request as it flows through the gateway. |
 
-`config.json` is created on first run with sensible defaults. Change the port
-under **Advanced settings** (applied live) — the `PORT`/`HOST` env vars that
-`start.sh` uses only override it for that one run.
+`config.json` is created on first run. Change port in **Advanced settings**.
+`PORT`/`HOST` from `start.sh` are one-run overrides.
 
 ---
 
 ## Your AI subscriptions
 
-The dashboard's **Your AI subscriptions** section has a guided 3-step card for
-each provider.
+The **Your AI subscriptions** section has one 3-step card per provider.
 
 > **Copilot?** GitHub Copilot already works natively inside VS Code — no lane
 > or setup needed for it here. local-harness is for adding *other* models
@@ -135,8 +131,7 @@ each provider.
 
 ### Claude
 
-On the dashboard, find the **Claude** card. Three steps tick themselves green
-as you go:
+Use the **Claude** card and complete these three steps.
 
 **① Install the Claude app.** If the step already shows a green ✓, skip ahead.
 Otherwise copy the command shown and run it in a terminal:
@@ -145,61 +140,41 @@ Otherwise copy the command shown and run it in a terminal:
 npm install -g @anthropic-ai/claude-code --ignore-scripts
 ```
 
-(`--ignore-scripts` is a safety habit: it stops any package from running hidden
-code during installation.)
+`--ignore-scripts` prevents install-time package scripts.
 
-**② Sign in to Claude.** Click **"Sign in to Claude"**. A terminal window
-opens running `claude`. Type `/login` in it and finish signing in in your
-browser with your claude.ai account. Within a few seconds the card shows
-**"signed in as you@example.com — ready to use"**.
+**② Sign in to Claude.** Click **"Sign in to Claude"**, run `/login` in the
+opened terminal, and complete browser auth.
 
 > The dashboard never sees your password — the official Claude app holds your
 > login; the gateway just checks whether you're signed in.
 
-**③ Use it in your tools.** Flip the **turn on** switch, then select the tab
-for your tool:
+**③ Use it in your tools.** Turn the lane on, then use one of these tabs:
 
-- **VS Code:** open **Copilot Chat**, click the **model picker** →
-  **"Manage Models…"** (some versions: **"Other Models"**) → **"Custom
-  endpoint"**. VS Code opens a JSON entry for you to fill in — it does **not**
-  discover models from the address on its own, so **replace it entirely**
-  with the JSON block the dashboard shows (`copy` button included), which
-  already has one entry per model (`sonnet`, `opus`, `haiku`) with a real `id`
-  pointed at `http://localhost:4000/claude/v1`. This matters: a blank or
-  made-up `id` is silently left out of the chat model picker with no error —
-  confirmed directly, not a guess. Your Claude models then appear in Copilot's
-  picker **next to** the ones you already had — nothing is replaced.
+- **VS Code:** Copilot Chat → model picker → **Manage Models…** (or
+  **Other Models**) → **Custom endpoint**. Replace the JSON with the card's
+  full block.
+  VS Code does not auto-discover models from URL. Each model needs a real `id`,
+  or it will not appear in the picker.
 
-- **OpenCode:** click the **OpenCode** tab, copy the block into `opencode.json`
-  in your project (or `~/.config/opencode/opencode.json`), run `opencode`, then
-  `/models`.
+- **OpenCode:** copy the OpenCode tab block into `opencode.json` (project or
+  `~/.config/opencode/opencode.json`), run `opencode`, then `/models`.
 
 ---
 
 ### Gemini
 
-Same three steps, on the **Gemini** card:
+Same three steps on the **Gemini** card:
 
 1. **Install:** `npm install -g @google/gemini-cli --ignore-scripts`
-2. **Sign in:** click **"Sign in to Gemini"** — a terminal opens running
-   `gemini` and sends you to your browser. **Use the Google account that holds
-   your subscription.** The CLI uses your Google AI Pro/Ultra quota
-   automatically; otherwise it falls back to the free tier.
-3. **Use it:** flip the switch on, then in VS Code add a **Custom endpoint**
-   with the JSON block the card shows — same as the Claude card, one entry
-   per model (`gemini-2.5-pro` / `gemini-2.5-flash`) with a real `id` pointed
-   at `http://localhost:4000/gemini/v1` (edit the model list on the card if
-   your CLI offers different ones). For OpenCode, click the **OpenCode** tab.
+2. **Sign in:** click **"Sign in to Gemini"**, complete browser auth, and use
+  the Google account that holds your subscription.
+3. **Use it:** turn the lane on and copy the card JSON into VS Code Custom
+  endpoint (or use the OpenCode tab). Keep model `id` values exact.
 
-> **Heads up — Gemini's sign-in can fail even after you complete it.** The
-> `gemini` CLI has an internal "Code Assist onboarding" step that some accounts
-> don't have access to — commonly Workspace/company-managed accounts, or when
-> you signed in with a different Google account than the one holding the
-> subscription. Symptoms: `FatalCancellationError`, an `onboardUser` 429/403, a
-> bare "Not logged in", or the card flickering. **Diagnose it outside the
-> gateway first:** run `gemini -p "say hi"` in your own terminal. If it fails
-> there too, it's a Google account/policy issue this project can't work around
-> for that account.
+> **Heads up:** Gemini sign-in can fail on some account types.
+> If you see `FatalCancellationError`, `onboardUser` 429/403, or "Not logged
+> in", test directly first: `gemini -p "say hi"`. If that fails too, the issue
+> is account/policy-side.
 >
 > Google is also mid-rollout on a replacement CLI called `antigravity`. If
 > `gemini` stops resolving, change the lane's **CLI command** field to
@@ -214,7 +189,7 @@ Same three steps, on the **Gemini** card:
 
 ## Your local model
 
-No subscription needed, and nothing leaves your machine.
+No subscription needed. Traffic stays on your machine.
 
 1. Start a model server. For example:
    ```bash
@@ -222,73 +197,50 @@ No subscription needed, and nothing leaves your machine.
    # or
    vllm serve <model> --port 8000            # vLLM, port 8000
    ```
-2. On the dashboard's **Your local model** card, enter a **name** and the
-   **address** of your server (common ones are shown on the card:
-   Ollama `http://localhost:11434`, LM Studio `http://localhost:1234`,
-   vLLM `http://localhost:8000`). Click **Test connection** — it turns green
-   when reachable and auto-discovers the model name(s) via `/v1/models`.
-   Servers that don't support that endpoint won't auto-fill — type the model
-   names into the **Models** field yourself (comma-separated); once there's
-   more than one, a **Default model** dropdown appears to pick which one the
-   curl snippet uses and which one the gateway falls back to if a tool
-   requests a model this server doesn't have.
-3. Flip it on, then add it to your tool:
-   - **VS Code:** add a **Custom endpoint** with the JSON block the card
-     shows — one entry per model you listed above, `id` set to the exact
-     model name and `url` pointed at e.g. `http://localhost:4000/local/v1`,
-     same as the subscription cards. VS Code does not discover models from
-     the address itself, so the JSON's own `models` array is the complete,
-     final list — a placeholder or mismatched `id` just won't appear in the
-     chat picker, with no error.
-   - **OpenCode:** click the **OpenCode** tab on the card — for a local model
-     it defaults to a config that points *directly* at your server's own
-     address (OpenCode already speaks OpenAI's API natively, so it has no
-     real need for the gateway), with the gateway-routed config offered as a
-     fallback underneath if you'd rather have it in the audit log.
+2. In **Your local model**, enter a name and server address
+  (Ollama `http://localhost:11434`, LM Studio `http://localhost:1234`,
+  vLLM `http://localhost:8000`). Click **Test connection**.
+  If `/v1/models` is unsupported, enter model names manually (comma-separated).
+  If multiple models are set, choose a **Default model**.
+3. Turn the lane on, then add it to your tool:
+  - **VS Code:** paste the card JSON into **Custom endpoint**.
+    Use exact model names in `id`; mismatches are silently skipped.
+  - **OpenCode:** use the OpenCode tab. It defaults to direct backend config,
+    with gateway-routed config as an optional fallback.
 
 > If your server's address already ends in `/v1` (some hosted vLLM gateways
 > do), that's fine — the gateway handles it without doubling the path.
 
-**Prefer to skip the gateway entirely?** Ollama, vLLM, and LM Studio already
-speak OpenAI's API on their own — the local model card shows a ready-to-paste
-direct config (with a copy button) right under the normal gateway
-instructions. See [Local models without the gateway](#local-models-without-the-gateway)
-below for the generic version if you don't want to run local-harness at all.
+**Prefer to skip the gateway?** See
+[Local models without the gateway](#local-models-without-the-gateway).
 
-**A note on `vision`, wherever this JSON appears:** the dashboard always
-generates `vision: false`. For the Claude/Gemini CLI lanes this isn't a
-default to override — the gateway's CLI wrapper only forwards message
-*text* to the underlying `claude`/`gemini` process, so any image content is
-silently dropped before it ever reaches the CLI. For a local-model lane,
-flip it to `true` only once you've confirmed that specific backend model
-actually accepts image input — the gateway has no way to know either way.
+**Vision setting:**
+
+- Dashboard JSON defaults to `vision: false`.
+- Claude/Gemini CLI lanes are text-only.
+- For local models, set `vision: true` only if that backend/model supports images.
 
 ---
 
 ## Local models without the gateway
 
-Don't want to run local-harness at all — no port to manage, no dashboard, no
-audit log? Ollama, vLLM, and LM Studio all speak the OpenAI-compatible API
-natively, so both VS Code and OpenCode can talk to them directly. This is the
-generic version of the dashboard's "skip the gateway" cards — useful if you'd
-rather not start the gateway just to read off a config.
+You can connect VS Code and OpenCode directly to Ollama/vLLM/LM Studio.
+Use this if you do not want to run the gateway.
 
-The trade-off going this route: no shared port across tools, no entry in
-`logs/audit.jsonl`, no bundling multiple models into one config, and if your
-server needs an API key you're the one putting it in each tool's config
-instead of the gateway injecting it for you.
+Trade-offs:
 
-**Find your server's exact model id first** — this is the one field every
-tool gets wrong by guessing:
+- No shared gateway port across tools
+- No entries in `logs/audit.jsonl`
+- No centralized model routing/config
+- You manage API keys per tool
+
+**Find the exact model id first:**
 
 ```bash
 curl -s http://localhost:11434/v1/models   # Ollama — replace the port for vLLM/LM Studio
 ```
 
-Use the `id` from that response verbatim. A close-but-not-exact name (a
-display label, a version you *think* it is) won't error — it'll just silently
-fail to appear as a selectable model later, the same failure mode as the
-gateway-routed config earlier in this doc.
+Use that `id` exactly. Near matches are silently skipped by clients.
 
 ### VS Code
 
@@ -316,10 +268,8 @@ entirely with this, filling in your real model id and address:
 }
 ```
 
-Add one object per model if your server serves more than one. `apiKey` can be
-any non-empty string if your server doesn't need one; if it does, put the
-real key there — there's no gateway to inject it for you. Leave `vision`
-false unless you've confirmed that specific model accepts image input.
+Add one object per model if needed. If your server requires an API key, set it
+here. Keep `vision` false unless image input is confirmed.
 
 ### OpenCode
 
@@ -347,17 +297,10 @@ if your server needs one.
 
 ## Claude Code with a local model as its brain
 
-This is the way to make **Claude Code** (the `claude` CLI coding assistant) run
-entirely on your own model — full agentic coding, file reads, tool calls and
-all, bypassing Anthropic's cloud and usage limits.
+Use this to run **Claude Code** against your own local model.
 
-It works because the gateway speaks **Anthropic's Messages API** natively on
-proxy lanes: it translates Anthropic-format requests (including tool calls,
-streaming, everything) into the OpenAI Chat Completions format your model
-speaks, and translates the responses back. (Claude *Desktop* can't do this —
-it hardcodes its connection to Anthropic's servers with no way to swap the
-model. Claude Code is fully headless, so its model is simply whatever
-`ANTHROPIC_BASE_URL` points at.)
+How it works: the gateway translates between Anthropic Messages API and
+OpenAI-compatible chat format for your backend.
 
 Add to `~/.claude/settings.json` (create it if it doesn't exist):
 
@@ -370,45 +313,28 @@ Add to `~/.claude/settings.json` (create it if it doesn't exist):
 }
 ```
 
-Then run `claude` and it uses your local model for every message.
+Run `claude` after saving this.
 
-- Replace `/local` with the address prefix of whichever **local model lane**
-  you want. This works only for plain HTTP backends — **not** the built-in
-  `claude`/`gemini` subscription lanes, which
-  only speak OpenAI's format (and routing Claude Code through the lane that
-  launches the real `claude` CLI would be circular anyway). The dashboard's
-  Claude/Gemini subscription cards deliberately don't offer a "Claude Code"
-  tab for this reason.
-- `ANTHROPIC_API_KEY` is ignored by the gateway but required by Claude Code —
-  any non-empty string works. **If your real backend needs a key, put it in the
-  lane's API-key field in the dashboard, not here.**
-- Prefer to keep your global config clean? Set the two variables per-session
-  instead, or in a project-local `~/.claude/settings.local.json` (which
-  `.gitignore` already excludes so you don't leak a key):
+- Replace `/local` with your local lane prefix.
+  This does not work with built-in Claude/Gemini subscription lanes.
+- `ANTHROPIC_API_KEY` is required by Claude Code but ignored by the gateway.
+  If the backend needs a real key, set it in the lane config.
+- Alternative: set variables per session (or in `~/.claude/settings.local.json`):
   ```bash
   ANTHROPIC_BASE_URL=http://localhost:4000/local ANTHROPIC_API_KEY=local-key claude
   ```
 
-> **Note:** your model needs tool-calling support server-side for Claude Code
-> to read files and run commands (e.g. vLLM started with
-> `--enable-auto-tool-choice` and a matching `--tool-call-parser`). Without it,
-> Claude Code can chat but can't act on your repo.
+> **Note:** Claude Code needs server-side tool-calling support to read files
+> and run commands. Without it, chat works but repo actions do not.
 
 ---
 
 ## How do I know it's working?
 
-Three ways, easiest first:
+Three quick checks:
 
-1. **Recent activity table** (bottom of the dashboard). Send a message from any
-   tool and a row appears within seconds: which lane, which model, how long,
-   and — when the backend reports it — tokens, tokens/sec, and time-to-first-token.
-   These three are best-effort: a dash means the backend never told the
-   gateway, not that nothing happened. Streaming requests get a real
-   completion-token count and TTFT from the backend's own usage data when it
-   reports one (the gateway asks for it via `stream_options.include_usage` on
-   Anthropic-translated traffic); non-streaming requests show TTFT equal to
-   the total duration, since the whole answer arrives at once.
+1. **Recent activity table:** send a request and check lane/model/duration.
+  Token and TTFT fields are best-effort and depend on backend reporting.
 2. **curl test** — click the **Test with curl** tab on any card, copy, paste
    into a terminal, and you should get a JSON answer back. Or directly:
    ```bash
@@ -418,8 +344,7 @@ Three ways, easiest first:
    ```
    (Swap `MODEL` for one your backend serves — the curl tab fills this in for
    you once a model is discovered.)
-3. **The audit log** — `logs/audit.jsonl` keeps one line per request forever.
-   Open it in any text editor.
+3. **Audit log:** check `logs/audit.jsonl` (one line per request).
 
 ---
 
@@ -429,15 +354,13 @@ Three ways, easiest first:
 npm test
 ```
 
-Runs the regression suite ([test/regression.js](test/regression.js), also
-zero-dependency). It boots an isolated gateway on port 4999 with a mock HTTP
-backend and fake `claude`/`gemini` CLIs — **your real config, logins, and
-subscription quota are never touched** — and verifies dozens of behaviors
-across routing, audit-header injection, SSE streaming, the built-in CLI
-wrappers, config validation, health checks, and the full Anthropic Messages
-API translation (including tool-calling, both directions, streaming and
-non-streaming). All checks pass in a few seconds. macOS/Linux only (the fake
-CLIs are POSIX scripts).
+Runs the zero-dependency regression suite in `test/regression.js`.
+
+- Uses an isolated gateway on port 4999
+- Uses mock backend + fake CLIs
+- Does not touch your real logins/config/quota
+- Covers routing, streaming, wrappers, config validation, and translation
+- macOS/Linux only (fake CLIs are POSIX scripts)
 
 ---
 
@@ -464,80 +387,24 @@ CLIs are POSIX scripts).
 
 ## Security
 
-This is a **localhost-only, single-user tool.** The realistic threats are a
-malicious website open in your browser while the gateway runs, other local
-users/processes on the same machine, and the third-party CLIs/wrappers you
-point lanes at — not the network.
+local-harness is localhost-only and intended for one user on one machine.
 
-This project has been through an automated security scan (SAST + an LLM-based
-deep review), and every finding was individually re-verified against the actual
-code/runtime behavior rather than taken at face value. Both the confirmed
-issues and the false positives are recorded below with evidence, so this
-doesn't need re-litigating on the next scan.
+**Built-in protections:**
 
-**What's covered:**
+- Binds to `127.0.0.1` by default
+- Admin UI/API requires per-install token (`?token=` or `X-Admin-Token`)
+- Admin writes require same-origin + `application/json`
+- Host header validation blocks DNS rebinding (`421`)
+- CLI lanes use argv `spawn()` (no shell interpretation)
+- `config.json` is owner-only (`0600`)
+- Audit log stores metadata only (not prompts/responses)
+- GUI escapes dynamic values before rendering
 
-- Binds to `127.0.0.1` only; the admin API refuses to rebind off localhost, and
-  a startup warning fires if you ever override that.
-- **Zero npm dependencies** in `gateway.js` — no transitive dependency tree to
-  audit for the code that actually runs your traffic.
-- **The entire admin surface (`/admin` page + `/admin/api/*`) requires a random
-  per-install token** (via `X-Admin-Token` header or `?token=` query param,
-  checked with a constant-time comparison). Without it, anything that can reach
-  `localhost:<port>` — another local user, a compromised dependency in an
-  unrelated project, a malicious webpage — could read or rewrite your config,
-  including a lane's `command` field (which is arbitrary code execution). The
-  token is in the startup banner and `logs/gateway.log`; `/healthz` stays
-  unauthenticated as a liveness probe. **This does not affect chat traffic** —
-  lane routes need no token, only configuration does.
-- On top of the token, the admin API requires **same-origin** requests: any
-  non-`GET` call is rejected unless its `Origin` matches the gateway's host,
-  and config writes require `Content-Type: application/json` (closing the
-  "CORS-safelisted content type" bypass). The admin token can't be rotated
-  through the config-write endpoint, so a caller with one valid token can't
-  lock out the real user.
-- **Every route rejects requests whose `Host` header isn't this gateway's own
-  address** (421). This closes DNS rebinding: a malicious site can point its
-  own hostname at 127.0.0.1, making its requests *same-origin* in your browser
-  — CORS never applies, so without this check the page could not only send
-  requests to token-free chat lanes but **read the responses**. The rebound
-  request necessarily carries the attacker's hostname in `Host`, which is
-  exactly what's rejected.
-- CLI lanes `spawn()` with an argv array, **never a shell**, so prompts can't be
-  interpreted as shell syntax — verified directly (a prompt containing
-  `; rm -rf ~` reaches the CLI as inert literal text). The `command` field also
-  rejects shell metacharacters as hygiene.
-- `config.json` is written `0600` (owner-only), since lane API keys live there
-  in plaintext. Logs, `config.json`, and project-local Claude keys are all in
-  `.gitignore` so they can't be committed.
-- The audit log records **metadata only** — lane, model, status, timing, byte
-  counts, and (best-effort) token/throughput counts — never prompt or response
-  bodies. Token counts come from the backend's own reported usage, not from
-  reading the actual message content.
-- Sign-ins happen inside the official CLIs; the gateway never sees your
-  password. Every dynamic value in the GUI is HTML-escaped before rendering.
+**Important limits:**
 
-**What's *not* covered, by design or by nature of the problem:**
-
-- **A local user with the admin token can set a lane's `command` to anything** —
-  that's the feature (build your own lanes), so the token is the whole trust
-  boundary. Treat it like a password to a root shell for this tool.
-- **No TLS.** Fine on loopback; do **not** rebind `host` to `0.0.0.0` — that
-  would expose the admin API, in plaintext, on your network.
-- **Consumer subscriptions in third-party tools generally violate the
-  provider's ToS** and can get an account flagged — a policy risk, not a code
-  one.
-
-**Automated-scan findings that did not hold up, with evidence:**
-
-- *"Critical: Command Injection — user prompts can be escalated to code
-  execution"* — **false.** `spawn()` is called without `shell: true` anywhere,
-  so there is no shell for metacharacters to be interpreted by; args reach the
-  OS as a literal array. Reproduced directly: a destructive-looking prompt
-  creates no file and runs no command (see the regression test).
-- *"High: XSS via `innerHTML` in `script.js:120`"* — `script.js` doesn't exist
-  (the scanner mislabeled inline `<script>` in `admin.html`). Every `innerHTML`
-  assignment was checked: all dynamic values pass through an `esc()` helper first.
+- Anyone with your admin token can modify lane commands
+- No TLS on loopback (do not expose by rebinding host)
+- Provider ToS may disallow routing consumer subscriptions through third-party tools
 
 ---
 
