@@ -255,6 +255,14 @@ function chat(lanePrefix, payload) {
   return jpost(`${BASE}${lanePrefix}/v1/chat/completions`, payload);
 }
 
+// Most recent audit entry matching a path suffix — used to check the
+// token/TTFT/throughput fields the gateway attaches after a request completes.
+async function latestAuditEntry(pathSuffix) {
+  const r = await fetch(`${BASE}/admin/api/logs?limit=100`, { headers: AUTH });
+  const { entries } = await r.json();
+  return [...entries].reverse().find((e) => e.path.startsWith(pathSuffix));
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 
@@ -508,6 +516,18 @@ async function main() {
       anthro1.body.usage.input_tokens === 11 && anthro1.body.usage.output_tokens === 3);
     check('requested model name is echoed back (not the upstream\'s own model field)', anthro1.body.model === 'm1');
 
+    // Audit log: non-streaming requests get real usage from the upstream
+    // response, and TTFT collapses to the full duration (the whole answer
+    // arrives at once, so there's no earlier "first token" moment).
+    const nonStreamEntry = await latestAuditEntry('/mock/v1/messages');
+    check('audit log records real prompt/completion tokens for a non-streaming Anthropic request',
+      nonStreamEntry?.promptTokens === 11 && nonStreamEntry?.completionTokens === 3, JSON.stringify(nonStreamEntry));
+    check('...and TTFT equals the full duration for a non-streaming response',
+      typeof nonStreamEntry?.ttftMs === 'number' && nonStreamEntry.ttftMs === nonStreamEntry.durationMs, JSON.stringify(nonStreamEntry));
+    check('...and tokens/sec is a positive number or null (never NaN/undefined)',
+      nonStreamEntry?.tokensPerSec === null || (typeof nonStreamEntry?.tokensPerSec === 'number' && nonStreamEntry.tokensPerSec > 0),
+      JSON.stringify(nonStreamEntry));
+
     // Streaming: Anthropic SSE event sequence built from real upstream SSE chunks
     const streamRes = await fetch(`${BASE}/mock/v1/messages`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
@@ -520,6 +540,19 @@ async function main() {
       && streamText.includes('event: content_block_delta') && streamText.includes('"text":"Hi"')
       && streamText.includes('event: content_block_stop') && streamText.includes('event: message_delta')
       && streamText.includes('event: message_stop'), streamText);
+
+    // Audit log: streaming requests get a real completion-token count from
+    // the upstream's final usage chunk, plus a genuine time-to-first-token
+    // measured from the first content delta actually sent to the client.
+    const streamEntry = await latestAuditEntry('/mock/v1/messages');
+    check('audit log records real completion tokens for a streaming Anthropic request',
+      streamEntry?.completionTokens === 2, JSON.stringify(streamEntry));
+    check('...and a numeric time-to-first-token no greater than the total duration',
+      typeof streamEntry?.ttftMs === 'number' && streamEntry.ttftMs >= 0 && streamEntry.ttftMs <= streamEntry.durationMs,
+      JSON.stringify(streamEntry));
+    check('...and tokens/sec is a positive number or null (never NaN/undefined)',
+      streamEntry?.tokensPerSec === null || (typeof streamEntry?.tokensPerSec === 'number' && streamEntry.tokensPerSec > 0),
+      JSON.stringify(streamEntry));
 
     // A multi-byte UTF-8 character split across two separate network chunks
     // must reassemble correctly, not corrupt into garbage/replacement
@@ -619,6 +652,15 @@ async function main() {
     check('claude-cli lane returns the CLI reply', r1.status === 200 && c1.includes('PROMPT=hello world'));
     check('requested model passed to the CLI', c1.includes('--model opus'));
     check('token usage mapped from CLI output', r1.body.usage && r1.body.usage.total_tokens === 12);
+
+    // Audit log: CLI lanes report the CLI's own usage numbers, and TTFT
+    // equals the full run time — the CLI computes the whole answer before
+    // the gateway starts faking SSE chunks, so there's no earlier moment.
+    const cliEntry = await latestAuditEntry('/fclaude/v1/chat/completions');
+    check('audit log records the CLI\'s real prompt/completion tokens',
+      cliEntry?.promptTokens + cliEntry?.completionTokens === 12, JSON.stringify(cliEntry));
+    check('...and TTFT equals the full duration for a CLI lane',
+      typeof cliEntry?.ttftMs === 'number' && cliEntry.ttftMs === cliEntry.durationMs, JSON.stringify(cliEntry));
 
     const r2 = await chat('/fclaude', { model: 'harness-whatever', messages: [{ role: 'user', content: 'x' }] });
     check('unknown model alias maps to lane default', r2.body.choices[0].message.content.includes('--model sonnet'));

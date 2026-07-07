@@ -294,7 +294,13 @@ function anthropicToOpenAI(anthropicBody) {
   if (anthropicBody.temperature !== undefined) out.temperature = anthropicBody.temperature;
   if (anthropicBody.top_p !== undefined) out.top_p = anthropicBody.top_p;
   if (Array.isArray(anthropicBody.stop_sequences)) out.stop = anthropicBody.stop_sequences;
-  if (anthropicBody.stream) out.stream = true;
+  if (anthropicBody.stream) {
+    out.stream = true;
+    // Ask the upstream to report real usage in the final SSE chunk (vLLM and
+    // most OpenAI-compatible servers honor this) instead of relying on the
+    // crude "one delta event = one token" proxy count used when it's absent.
+    out.stream_options = { include_usage: true };
+  }
 
   // Tool-calling: an agentic Anthropic client (Claude Code above all) can
   // only read files, run commands, etc. if its tool definitions actually
@@ -454,21 +460,31 @@ async function cliRequest(req, res, lane, viaDefault) {
   const args = provider.buildArgs(model, provider.systemInPrompt ? '' : system, fullPrompt);
   const command = lane.command || provider.defaultCommand;
 
-  const finish = (status, errMsg, text) => auditRecord({
-    ts: new Date().toISOString(),
-    id,
-    lane: lane.id,
-    method: req.method,
-    path: req.url,
-    target: `cli:${command}`,
-    model,
-    stream: !!body.stream,
-    status,
-    durationMs: Date.now() - started,
-    bytesIn: Buffer.byteLength(JSON.stringify(body)),
-    bytesOut: text ? Buffer.byteLength(text) : 0,
-    ...(errMsg ? { error: errMsg } : {}),
-  });
+  const finish = (status, errMsg, text, usage) => {
+    const durationMs = Date.now() - started;
+    auditRecord({
+      ts: new Date().toISOString(),
+      id,
+      lane: lane.id,
+      method: req.method,
+      path: req.url,
+      target: `cli:${command}`,
+      model,
+      stream: !!body.stream,
+      status,
+      durationMs,
+      bytesIn: Buffer.byteLength(JSON.stringify(body)),
+      bytesOut: text ? Buffer.byteLength(text) : 0,
+      promptTokens: usage?.prompt_tokens ?? null,
+      completionTokens: usage?.completion_tokens ?? null,
+      // The CLI computes the full answer before the gateway starts faking
+      // SSE chunks, so there's no real "first token" moment earlier than
+      // the total run time — log it as such rather than pretend otherwise.
+      ttftMs: usage ? durationMs : null,
+      tokensPerSec: tokensPerSecond(usage?.completion_tokens, durationMs),
+      ...(errMsg ? { error: errMsg } : {}),
+    });
+  };
 
   let result;
   try {
@@ -517,7 +533,7 @@ async function cliRequest(req, res, lane, viaDefault) {
       ...(result.usage ? { usage: { ...result.usage, total_tokens: (result.usage.prompt_tokens || 0) + (result.usage.completion_tokens || 0) } } : {}),
     });
   }
-  finish(200, null, result.text);
+  finish(200, null, result.text, result.usage);
 }
 
 // ---------------------------------------------------------------------------
@@ -631,6 +647,15 @@ if (process.env.HOST) config.host = process.env.HOST;
 const ringBuffer = [];
 let requestCounter = 0;
 
+// Best-effort throughput metric for the audit log — not authoritative. It
+// only reflects reality when the upstream backend actually reports token
+// counts (via `usage` in the response, or the final SSE chunk when
+// `stream_options.include_usage` is honored). Rounded to 1 decimal.
+function tokensPerSecond(tokens, ms) {
+  if (!tokens || !(ms > 0)) return null;
+  return Math.round((tokens / (ms / 1000)) * 10) / 10;
+}
+
 function auditRecord(entry) {
   ringBuffer.push(entry);
   if (ringBuffer.length > RING_SIZE) ringBuffer.shift();
@@ -713,6 +738,35 @@ async function proxyRequest(req, res, lane, viaDefault) {
   const resolved = new URL(forwardPath, target);
   let fullPath = resolved.pathname + resolved.search;
 
+  // Anthropic's token-counting endpoint has no OpenAI equivalent — every
+  // OpenAI-compatible backend legitimately 404s on it, model-remap or not,
+  // because the path itself has nowhere to go. Short-circuit with a rough
+  // client-side estimate instead of forwarding a request that can only fail.
+  if (req.method === 'POST' && forwardPath.split('?')[0].endsWith('/v1/messages/count_tokens')) {
+    let estimate = 0;
+    try {
+      const parsed = JSON.parse(body.toString('utf8'));
+      const texts = [];
+      const sys = parsed.system;
+      if (typeof sys === 'string') texts.push(sys);
+      else if (Array.isArray(sys)) for (const b of sys) if (b && typeof b.text === 'string') texts.push(b.text);
+      for (const msg of (parsed.messages || [])) {
+        if (typeof msg.content === 'string') texts.push(msg.content);
+        else if (Array.isArray(msg.content)) for (const b of msg.content) if (b && typeof b.text === 'string') texts.push(b.text);
+      }
+      // ~4 chars/token for English text — a rough estimate, not a real
+      // tokenizer; proxy lanes have no access to the backend's own one.
+      estimate = Math.ceil(texts.join(' ').length / 4);
+    } catch { /* malformed body: fall through with estimate 0 */ }
+    auditRecord({
+      ts: new Date().toISOString(), id, lane: lane.id, method: req.method,
+      path: req.url, target: `${lane.id}: local estimate (not forwarded upstream)`,
+      model: null, stream: false, status: 200, durationMs: Date.now() - started,
+      bytesIn: body.length, bytesOut: 0,
+    });
+    return jsonResponse(res, 200, { input_tokens: estimate });
+  }
+
   // Build outgoing headers: copy, strip hop-by-hop, inject audit + auth
   const headers = {};
   for (const [k, v] of Object.entries(req.headers)) {
@@ -756,7 +810,11 @@ async function proxyRequest(req, res, lane, viaDefault) {
       return jsonResponse(res, 400, { error: 'request body must be valid JSON' });
     }
     isAnthropicTranslation = true;
-    if (typeof anthropicBody.model === 'string') anthropicModel = anthropicBody.model;
+    if (typeof anthropicBody.model === 'string') {
+      const reqModel = anthropicBody.model;
+      anthropicBody.model = (lane.models || []).includes(reqModel) ? reqModel : (lane.defaultModel || reqModel);
+      anthropicModel = anthropicBody.model;
+    }
     anthropicStream = !!anthropicBody.stream;
     const openAIBody = anthropicToOpenAI(anthropicBody);
     body = Buffer.from(JSON.stringify(openAIBody));
@@ -770,6 +828,15 @@ async function proxyRequest(req, res, lane, viaDefault) {
     delete headers['anthropic-version'];
     delete headers['x-api-key']; // Anthropic uses x-api-key; upstream expects Authorization
   }
+
+  // Built from the parsed target + the final resolved fullPath, not string
+  // concatenation of lane.target + fullPath — a target that already includes
+  // its own path (e.g. "https://host/v1") would otherwise show as doubled
+  // ("https://host/v1/v1/chat/completions") in the audit log even though the
+  // actual outgoing request (built from target.hostname + fullPath below)
+  // was never doubled. Log-only artifact, but worth getting right for
+  // debugging honesty.
+  const upstreamUrl = `${target.protocol}//${target.host}${fullPath}`;
 
   const lib = target.protocol === 'https:' ? https : http;
   const proxyReq = lib.request({
@@ -800,6 +867,8 @@ async function proxyRequest(req, res, lane, viaDefault) {
         let buf = '';
         let preambleSent = false;
         let outputTokens = 0;
+        let promptTokens = null;
+        let firstTokenAt = null;
         // A multi-byte UTF-8 character (accented letters, emoji, non-Latin
         // scripts, ...) can land split across two TCP/SSE chunks. Decoding
         // each chunk independently via chunk.toString('utf8') corrupts that
@@ -870,6 +939,7 @@ async function proxyRequest(req, res, lane, viaDefault) {
             const delta = choice?.delta;
             if (choice?.finish_reason) finalFinishReason = choice.finish_reason;
             if (delta && typeof delta.content === 'string' && delta.content) {
+              if (firstTokenAt === null) firstTokenAt = Date.now();
               if (textBlockIndex === null) {
                 textBlockIndex = nextBlockIndex++;
                 sendEvt('content_block_start', { type: 'content_block_start', index: textBlockIndex, content_block: { type: 'text', text: '' } });
@@ -879,6 +949,7 @@ async function proxyRequest(req, res, lane, viaDefault) {
             }
             if (delta && Array.isArray(delta.tool_calls)) {
               for (const tc of delta.tool_calls) {
+                if (firstTokenAt === null) firstTokenAt = Date.now();
                 const oaIndex = tc.index ?? 0;
                 let entry = toolCallBlocks.get(oaIndex);
                 if (!entry) {
@@ -892,25 +963,39 @@ async function proxyRequest(req, res, lane, viaDefault) {
                 }
               }
             }
-            if (parsed.usage) outputTokens = parsed.usage.completion_tokens || outputTokens;
+            if (parsed.usage) {
+              // Real counts from the upstream (requested via stream_options.include_usage
+              // above) replace the crude "one delta event = one token" proxy count.
+              outputTokens = parsed.usage.completion_tokens ?? outputTokens;
+              promptTokens = parsed.usage.prompt_tokens ?? promptTokens;
+            }
           }
         });
         proxyRes.on('end', () => {
           finish(); // safety net: upstream closed without ever sending [DONE]
+          const durationMs = Date.now() - started;
+          // Throughput during actual generation, not the whole request (which
+          // includes time-to-first-token) — falls back to full duration if no
+          // token was ever observed as "first" (e.g. a tool-only response that
+          // never hit the text-delta branch before usage arrived).
+          const genMs = firstTokenAt ? Date.now() - firstTokenAt : durationMs;
           auditRecord({ ts: new Date().toISOString(), id, lane: lane.id, method: req.method,
-            path: req.url, target: lane.target + fullPath, model: anthropicModel, stream: true,
-            status: 200, durationMs: Date.now() - started, bytesIn: body.length, bytesOut });
+            path: req.url, target: upstreamUrl, model: anthropicModel, stream: true,
+            status: 200, durationMs, bytesIn: body.length, bytesOut,
+            promptTokens, completionTokens: outputTokens || null,
+            ttftMs: firstTokenAt ? firstTokenAt - started : null,
+            tokensPerSec: tokensPerSecond(outputTokens, genMs) });
         });
       } else {
         // Non-streaming: buffer the full OpenAI response and translate to Anthropic format
         const chunks = [];
         proxyRes.on('data', (chunk) => { bytesOut += chunk.length; chunks.push(chunk); });
         proxyRes.on('end', () => {
+          let openAIResp;
           let anthropicResp;
           try {
-            anthropicResp = openAIToAnthropic(
-              JSON.parse(Buffer.concat(chunks).toString('utf8')), id, anthropicModel,
-            );
+            openAIResp = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            anthropicResp = openAIToAnthropic(openAIResp, id, anthropicModel);
           } catch (err) {
             if (!res.headersSent) {
               jsonResponse(res, 502, { error: 'failed to translate upstream response: ' + err.message });
@@ -920,10 +1005,17 @@ async function proxyRequest(req, res, lane, viaDefault) {
           const respBody = JSON.stringify(anthropicResp);
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(respBody);
+          const durationMs = Date.now() - started;
           auditRecord({ ts: new Date().toISOString(), id, lane: lane.id, method: req.method,
-            path: req.url, target: lane.target + fullPath, model: anthropicModel, stream: false,
-            status: 200, durationMs: Date.now() - started, bytesIn: body.length,
-            bytesOut: Buffer.byteLength(respBody) });
+            path: req.url, target: upstreamUrl, model: anthropicModel, stream: false,
+            status: 200, durationMs, bytesIn: body.length,
+            bytesOut: Buffer.byteLength(respBody),
+            promptTokens: openAIResp.usage?.prompt_tokens ?? null,
+            completionTokens: openAIResp.usage?.completion_tokens ?? null,
+            // Non-streaming: the whole answer arrives at once, so there's no
+            // earlier "first token" moment distinct from the total duration.
+            ttftMs: durationMs,
+            tokensPerSec: tokensPerSecond(openAIResp.usage?.completion_tokens, durationMs) });
         });
       }
       return;
@@ -951,18 +1043,85 @@ async function proxyRequest(req, res, lane, viaDefault) {
     let bytesOut = 0;
     proxyRes.on('data', (chunk) => { bytesOut += chunk.length; });
     proxyRes.pipe(res); // streaming (SSE-safe): chunks pass through untouched
+
+    // Best-effort token/TTFT capture for generic OpenAI-format traffic — VS
+    // Code/OpenCode hitting a backend directly, or the dashboard's curl
+    // snippet. Runs alongside the untouched pipe above via a second 'data'
+    // listener (safe — Node streams support multiple listeners), never alters
+    // what the client receives, and degrades to nulls if the backend never
+    // reports usage.
+    const respContentType = (outHeaders['content-type'] || '').toLowerCase();
+    let genPromptTokens = null;
+    let genCompletionTokens = null;
+    let firstTokenAt = null;
+    if (respContentType.includes('text/event-stream')) {
+      const sseDecoder = new StringDecoder('utf8');
+      let sseBuf = '';
+      proxyRes.on('data', (chunk) => {
+        sseBuf += sseDecoder.write(chunk);
+        const lines = sseBuf.split('\n');
+        sseBuf = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (raw === '[DONE]' || !raw) continue;
+          let parsed;
+          try { parsed = JSON.parse(raw); } catch { continue; }
+          const delta = parsed.choices?.[0]?.delta;
+          if (delta && ((typeof delta.content === 'string' && delta.content) || Array.isArray(delta.tool_calls))) {
+            if (firstTokenAt === null) firstTokenAt = Date.now();
+            // Crude proxy count, overwritten below the moment real usage arrives.
+            genCompletionTokens = (genCompletionTokens || 0) + 1;
+          }
+          if (parsed.usage) {
+            genCompletionTokens = parsed.usage.completion_tokens ?? genCompletionTokens;
+            genPromptTokens = parsed.usage.prompt_tokens ?? genPromptTokens;
+          }
+        }
+      });
+    } else if (respContentType.includes('application/json')) {
+      const jsonChunks = [];
+      let jsonBytes = 0;
+      const JSON_USAGE_CAP = 8 * 1024 * 1024; // beyond this, don't bother parsing for usage
+      proxyRes.on('data', (chunk) => {
+        if (jsonBytes > JSON_USAGE_CAP) return;
+        jsonBytes += chunk.length;
+        jsonChunks.push(chunk);
+      });
+      proxyRes.on('end', () => {
+        if (jsonBytes > JSON_USAGE_CAP) return;
+        try {
+          const parsedResp = JSON.parse(Buffer.concat(jsonChunks).toString('utf8'));
+          genPromptTokens = parsedResp.usage?.prompt_tokens ?? null;
+          genCompletionTokens = parsedResp.usage?.completion_tokens ?? null;
+        } catch { /* not JSON, or malformed — leave usage null */ }
+      });
+    }
+
     proxyRes.on('end', () => {
+      const durationMs = Date.now() - started;
+      const genMs = firstTokenAt ? Date.now() - firstTokenAt : durationMs;
       auditRecord({
         ts: new Date().toISOString(),
         id,
         lane: lane.id,
         method: req.method,
         path: req.url,
-        target: lane.target + fullPath,
-        model,
+        target: upstreamUrl,
+        promptTokens: genPromptTokens,
+        completionTokens: genCompletionTokens,
+        // Only claim a TTFT when there's real signal: either a streamed
+        // first-token moment, or (non-streaming) usage that arrived with the
+        // single whole response — in which case TTFT is definitionally the
+        // full duration, not an earlier moment.
+        ttftMs: firstTokenAt ? firstTokenAt - started : (genCompletionTokens != null ? durationMs : null),
+        tokensPerSec: tokensPerSecond(genCompletionTokens, genMs),
+        // For an Anthropic-translated request, `model` still holds the raw
+        // pre-remap value the client sent — log what was actually forwarded.
+        model: isAnthropicTranslation ? anthropicModel : model,
         stream,
         status: proxyRes.statusCode,
-        durationMs: Date.now() - started,
+        durationMs,
         bytesIn: body.length,
         bytesOut,
       });
@@ -977,7 +1136,7 @@ async function proxyRequest(req, res, lane, viaDefault) {
       lane: lane.id,
       method: req.method,
       path: req.url,
-      model,
+      model: isAnthropicTranslation ? anthropicModel : model,
       status: 502,
       durationMs: Date.now() - started,
       error: err.message,
