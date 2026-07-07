@@ -35,6 +35,7 @@ passes through untouched, so live token-by-token chat works in every client.
   - [Your AI subscriptions](#your-ai-subscriptions) — Claude, Gemini
   - [Your local model](#your-local-model) — Ollama, vLLM, LM Studio
   - [Claude Code with a local model as its brain](#claude-code-with-a-local-model-as-its-brain)
+- [Local models without the gateway](#local-models-without-the-gateway) — skip local-harness entirely
 - [How do I know it's working?](#how-do-i-know-its-working)
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
@@ -247,15 +248,11 @@ No subscription needed, and nothing leaves your machine.
 > If your server's address already ends in `/v1` (some hosted vLLM gateways
 > do), that's fine — the gateway handles it without doubling the path.
 
-**VS Code alternative — skip the gateway entirely.** Ollama, vLLM, and LM
-Studio already speak OpenAI's API on their own, so you can point VS Code
-straight at your server's own address instead of the gateway's — e.g.
-`http://localhost:11434/v1` for Ollama. Use your server's real API key if it
-needs one (there's no gateway left to inject one for you). You lose the
-shared port, the audit log, and bundling with your other lanes/subscriptions
-in one config — worth it only if this is the sole model you'll ever add to VS
-Code. The local model card shows this exact direct config (with a copy
-button) right under the normal gateway instructions.
+**Prefer to skip the gateway entirely?** Ollama, vLLM, and LM Studio already
+speak OpenAI's API on their own — the local model card shows a ready-to-paste
+direct config (with a copy button) right under the normal gateway
+instructions. See [Local models without the gateway](#local-models-without-the-gateway)
+below for the generic version if you don't want to run local-harness at all.
 
 **A note on `vision`, wherever this JSON appears:** the dashboard always
 generates `vision: false`. For the Claude/Gemini CLI lanes this isn't a
@@ -264,6 +261,86 @@ default to override — the gateway's CLI wrapper only forwards message
 silently dropped before it ever reaches the CLI. For a local-model lane,
 flip it to `true` only once you've confirmed that specific backend model
 actually accepts image input — the gateway has no way to know either way.
+
+---
+
+## Local models without the gateway
+
+Don't want to run local-harness at all — no port to manage, no dashboard, no
+audit log? Ollama, vLLM, and LM Studio all speak the OpenAI-compatible API
+natively, so both VS Code and OpenCode can talk to them directly. This is the
+generic version of the dashboard's "skip the gateway" cards — useful if you'd
+rather not start the gateway just to read off a config.
+
+The trade-off going this route: no shared port across tools, no entry in
+`logs/audit.jsonl`, no bundling multiple models into one config, and if your
+server needs an API key you're the one putting it in each tool's config
+instead of the gateway injecting it for you.
+
+**Find your server's exact model id first** — this is the one field every
+tool gets wrong by guessing:
+
+```bash
+curl -s http://localhost:11434/v1/models   # Ollama — replace the port for vLLM/LM Studio
+```
+
+Use the `id` from that response verbatim. A close-but-not-exact name (a
+display label, a version you *think* it is) won't error — it'll just silently
+fail to appear as a selectable model later, the same failure mode as the
+gateway-routed config earlier in this doc.
+
+### VS Code
+
+Copilot Chat → model picker → **"Manage Models…"** (some versions: **"Other
+Models"**) → **"Custom endpoint"**. Replace VS Code's blank JSON entry
+entirely with this, filling in your real model id and address:
+
+```json
+{
+  "name": "My local model",
+  "vendor": "customendpoint",
+  "apiKey": "dummy",
+  "apiType": "chat-completions",
+  "models": [
+    {
+      "id": "llama3.1",
+      "name": "My local model — llama3.1",
+      "url": "http://localhost:11434/v1",
+      "toolCalling": true,
+      "vision": false,
+      "maxInputTokens": 200000,
+      "maxOutputTokens": 8192
+    }
+  ]
+}
+```
+
+Add one object per model if your server serves more than one. `apiKey` can be
+any non-empty string if your server doesn't need one; if it does, put the
+real key there — there's no gateway to inject it for you. Leave `vision`
+false unless you've confirmed that specific model accepts image input.
+
+### OpenCode
+
+Save as `opencode.json` in your project root (or
+`~/.config/opencode/opencode.json` for every project):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "my-local-model": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "My local model",
+      "options": { "baseURL": "http://localhost:11434/v1" },
+      "models": { "default": { "name": "My local model" } }
+    }
+  }
+}
+```
+
+Run `opencode` → `/models` → pick it. Add `"apiKey": "..."` inside `options`
+if your server needs one.
 
 ---
 
