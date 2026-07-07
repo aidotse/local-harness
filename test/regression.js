@@ -351,6 +351,42 @@ async function main() {
       body: JSON.stringify(edited),
     });
     check('a same-origin request (Origin matching Host) is still allowed', legit.status === 200);
+
+    // DNS-rebinding hardening: a page whose hostname resolves to 127.0.0.1 is
+    // same-origin in the browser (CORS never applies, responses readable), but
+    // it can't avoid sending its own hostname in Host — the gateway rejects
+    // any Host that isn't its own address, on every route including the
+    // token-free chat lanes. fetch() forbids overriding Host, so use raw http.
+    const rawStatus = (headers, reqPath) => new Promise((resolve, reject) => {
+      // setHost:false — only the Host header explicitly passed (if any) is
+      // sent, so the no-Host case genuinely sends none.
+      const rq = http.request({ host: '127.0.0.1', port: PORT, path: reqPath, headers, setHost: false }, (rs) => {
+        rs.resume();
+        resolve(rs.statusCode);
+      });
+      rq.on('error', reject);
+      rq.end();
+    });
+    check('DNS rebinding: a non-local Host header is rejected on a chat lane',
+      await rawStatus({ host: 'evil.example.com' }, '/mock/v1/models') === 421);
+    check('DNS rebinding: a non-local Host header is rejected on /healthz too',
+      await rawStatus({ host: 'evil.example.com:4999' }, '/healthz') === 421);
+    check('...while "localhost" as Host is accepted',
+      await rawStatus({ host: `localhost:${PORT}` }, '/healthz') === 200);
+    // Node rejects HTTP/1.1 without Host at the parser (400), before the
+    // gateway's check runs — so the "no Host at all" case only exists for
+    // HTTP/1.0 clients, which needs a raw socket to reproduce.
+    const http10Status = await new Promise((resolve, reject) => {
+      const sock = require('net').connect(PORT, '127.0.0.1', () => {
+        sock.end('GET /healthz HTTP/1.0\r\n\r\n');
+      });
+      let data = '';
+      sock.on('data', (c) => { data += c; });
+      sock.on('end', () => resolve(parseInt(data.split(' ')[1], 10)));
+      sock.on('error', reject);
+    });
+    check('...and a missing Host header (bare HTTP/1.0 client) is tolerated',
+      http10Status === 200);
   }
 
   section('Proxy lanes');

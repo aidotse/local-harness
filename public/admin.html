@@ -294,8 +294,18 @@ function toolInstructions(lane, tool) {
 
 function toolTabsHTML(lane, displayName) {
   const name = displayName || lane.name;
-  const tool = toolTab[lane.id] || 'vscode';
-  const tabs = [['vscode', 'VS Code'], ['claudeCode', 'Claude Code'], ['opencode', 'OpenCode'], ['curl', 'Test with curl']];
+  // The Claude Code tab configures ANTHROPIC_BASE_URL, which relies on the
+  // gateway's Anthropic /v1/messages translation — that only works on proxy
+  // lanes. The built-in Claude/Gemini CLI lanes only speak OpenAI chat and
+  // would 404 on /v1/messages; and for the Claude subscription specifically
+  // it's also circular (Claude Code is already Claude). So skip it for CLI
+  // lanes.
+  const tabs = [['vscode', 'VS Code']];
+  if (!isCliLane(lane)) tabs.push(['claudeCode', 'Claude Code']);
+  tabs.push(['opencode', 'OpenCode'], ['curl', 'Test with curl']);
+  // If a previously-selected tab isn't available for this lane, fall back.
+  let tool = toolTab[lane.id] || 'vscode';
+  if (!tabs.some(([id]) => id === tool)) tool = 'vscode';
   return `<div class="tool-tabs" data-tool-tabs="${lane.id}">
       ${tabs.map(([id, label]) => `<button data-tool="${id}" class="${tool === id ? 'active' : ''}">${label}</button>`).join('')}
     </div>
@@ -585,13 +595,31 @@ const GEMINI_WEB_LANE = {
   apiKey: '', healthPath: '/health',
   notes: 'Unofficial wrapper (Nativu5/Gemini-FastAPI) — cookie goes into that project, never here.',
 };
-const GEMINI_DOCKER_CMD = `docker run -p 8000:8000 \\
-  -e CONFIG_GEMINI__CLIENTS__0__SECURE_1PSID="PASTE_YOUR___Secure-1PSID" \\
-  -e CONFIG_GEMINI__CLIENTS__0__SECURE_1PSIDTS="PASTE_YOUR___Secure-1PSIDTS" \\
-  ghcr.io/nativu5/gemini-fastapi`;
+// One random helper key per page load. It's written into the env file the
+// user copies (so the wrapper requires it as a Bearer token) and saved onto
+// the lane when the toggle is flipped (so the gateway sends it). Result: the
+// gateway is the only client the helper answers, even for other local
+// processes. If the lane already has a key, that one is shown instead.
+const randHex = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, '0')).join('');
+const GEMINI_WEB_HELPER_KEY = randHex(16);
+const geminiWebKey = () => (cfg.lanes.find((l) => l.id === 'gemini-web') || {}).apiKey || GEMINI_WEB_HELPER_KEY;
+const GEMINI_ENV_CMD = (key) => `umask 177 && cat > gemini-web.env <<'EOF'
+CONFIG_GEMINI__CLIENTS__0__ID=main
+CONFIG_GEMINI__CLIENTS__0__SECURE_1PSID=PASTE_YOUR___Secure-1PSID
+CONFIG_GEMINI__CLIENTS__0__SECURE_1PSIDTS=PASTE_YOUR___Secure-1PSIDTS
+CONFIG_SERVER__API_KEY=${key}
+EOF`;
+const GEMINI_RUN_CMD = `docker run --rm -p 127.0.0.1:8000:8000 --env-file gemini-web.env ghcr.io/nativu5/gemini-fastapi`;
+const GEMINI_BUILD_LOCAL_CMD = `git clone https://github.com/Nativu5/Gemini-FastAPI.git && cd Gemini-FastAPI
+docker build -t gemini-fastapi:local .`;
+const PERPLEXITY_BUILD_CMD = `git clone https://github.com/helallao/perplexity-ai.git && cd perplexity-ai
+printf 'FROM python:3.12-slim\\nWORKDIR /app\\nCOPY . .\\nRUN pip install --no-cache-dir ".[mcp]"\\nENTRYPOINT ["perplexity-mcp"]\\n' > Dockerfile
+docker build -t perplexity-mcp:local .`;
 const PERPLEXITY_MCP_JSON = JSON.stringify({
   inputs: [{ type: 'promptString', id: 'perplexity-cookies', description: 'Perplexity cookies as JSON, e.g. {"next-auth.session-token": "..."}', password: true }],
-  servers: { perplexity: { type: 'stdio', command: 'perplexity-mcp', env: { PERPLEXITY_COOKIES: '${input:perplexity-cookies}' } } },
+  servers: { perplexity: { type: 'stdio', command: 'docker',
+    args: ['run', '-i', '--rm', '-e', 'PERPLEXITY_COOKIES', 'perplexity-mcp:local'],
+    env: { PERPLEXITY_COOKIES: '${input:perplexity-cookies}' } } },
 }, null, 2);
 
 function geminiWebCard() {
@@ -606,15 +634,19 @@ function geminiWebCard() {
       <span class="card-name">Gemini — browser login</span>
       <span class="card-status ${enabled && up ? 'good' : (enabled ? 'warn' : '')}">${stTxt}</span>
     </div>
-    <div class="warn-note">⚠️ Reuses your <b>Google account</b> login cookie — that's full-account access and likely skips 2FA. Use a spare account if you can. The cookie goes into the helper below, <b>never</b> into this page.</div>
+    <div class="warn-note">⚠️ Reuses your <b>Google account</b> login cookie — that's full-account access and likely skips 2FA. Use a spare account if you can. The cookie goes into the helper below, <b>never</b> into this page. <b>Stopping the helper does not sign you out</b> — the cookie stays valid at Google until you use the kill switch: Google Account → Security → sign out of all sessions.</div>
     <div class="setup">
       <div class="setup-step"><div class="st todo">1</div><div style="flex:1">
-        <b>Start the helper</b> — <a href="https://github.com/Nativu5/Gemini-FastAPI" target="_blank" rel="noopener">Nativu5/Gemini-FastAPI</a>. With Docker:
-        <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(GEMINI_DOCKER_CMD)}</pre></div>
+        <b>Put your cookie values in a private file</b>
+        <div class="detail">Open <code>gemini.google.com</code> → press F12 → Application → Cookies → copy <code>__Secure-1PSID</code> and <code>__Secure-1PSIDTS</code>. Then run this in a terminal and replace the two PASTE_… lines (never paste the cookies into this page, and don't put them straight on a command line — a file keeps them out of your shell history and <code>ps</code> output; <code>umask 177</code> makes it readable by you only):</div>
+        <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(GEMINI_ENV_CMD(geminiWebKey()))}</pre></div>
+        <div class="detail" style="margin-top:6px">The last line is a password this page generated for the helper — the gateway will use it automatically when you flip the switch in step 3, and the helper will refuse anything else that talks to it (another local process, a webpage).</div>
       </div></div>
       <div class="setup-step"><div class="st todo">2</div><div style="flex:1">
-        <b>Get your cookie values</b>
-        <div class="detail">Open <code>gemini.google.com</code> → press F12 → Application → Cookies → copy <code>__Secure-1PSID</code> and <code>__Secure-1PSIDTS</code> into the command above (replace the PASTE_… bits). Never paste them into this page.</div>
+        <b>Start the helper</b> — <a href="https://github.com/Nativu5/Gemini-FastAPI" target="_blank" rel="noopener">Nativu5/Gemini-FastAPI</a>. With Docker, in the same folder as the file from step 1:
+        <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(GEMINI_RUN_CMD)}</pre></div>
+        <div class="detail" style="margin-top:6px"><code>127.0.0.1:8000:8000</code> keeps it reachable from this machine only (plain <code>-p 8000:8000</code> would expose your Google session to your whole network); <code>--rm</code> deletes the container — and the session data it accumulated — every time you stop it. Safest of all: build the image yourself from a copy of the code you've looked at, and use <code>gemini-fastapi:local</code> instead of the <code>ghcr.io</code> image in the command above — then updates only happen when you choose to re-run this:
+        <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(GEMINI_BUILD_LOCAL_CMD)}</pre></div></div>
       </div></div>
       <div class="setup-step"><div class="st ${enabled && up ? 'ok' : 'todo'}">${enabled && up ? '✓' : '3'}</div><div style="flex:1">
         <div class="row" style="justify-content:space-between">
@@ -634,20 +666,21 @@ function perplexityCard() {
       <span class="card-name">Perplexity — search tool for VS Code</span>
       <span class="card-status">set up inside VS Code, not through this gateway</span>
     </div>
-    <div class="warn-note">⚠️ Reuses your Perplexity login cookie — full-account access, same risk as above. This one is set up directly in VS Code, so it won't show in “Recent activity”.</div>
+    <div class="warn-note">⚠️ Reuses your Perplexity login cookie — full-account access, same risk as above. This one is set up directly in VS Code, so it won't show in “Recent activity”. In Agent mode, Copilot calls this tool <b>on its own</b> — text it reads (a file, a webpage) can steer it into sending fragments of your code to Perplexity, with no local record. Enable it only in projects where that's acceptable, or start with the cookie-less free mode.</div>
     <div class="setup">
       <div class="setup-step"><div class="st todo">1</div><div style="flex:1">
-        <b>Get the helper (no git needed)</b> — <a href="https://github.com/helallao/perplexity-ai" target="_blank" rel="noopener">helallao/perplexity-ai</a>. Download it (GitHub → green <b>Code</b> button → <b>Download ZIP</b>), unzip, then in that folder run:
-        <div class="cmd">pip install -e ".[mcp]" <button onclick="copyText('pip install -e &quot;.[mcp]&quot;', this)">copy</button></div>
+        <b>Get the helper and build it into a container</b> — <a href="https://github.com/helallao/perplexity-ai" target="_blank" rel="noopener">helallao/perplexity-ai</a>. This is unofficial community code that will hold a full-account cookie, so skim what you cloned (or the diff, when updating) before building. The container keeps it away from your files; nothing is installed into your own Python:
+        <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(PERPLEXITY_BUILD_CMD)}</pre></div>
+        <div class="detail" style="margin-top:6px">Updates only happen when you <code>git pull</code> and rebuild — treat that as a moment to re-skim, not routine.</div>
       </div></div>
       <div class="setup-step"><div class="st todo">2</div><div style="flex:1">
         <b>Add this to VS Code</b>
-        <div class="detail">Save as <code>.vscode/mcp.json</code> in your project. VS Code asks for the cookie in a hidden box and stores it itself — it's never written to the file.</div>
+        <div class="detail">Save as <code>.vscode/mcp.json</code> in your project. VS Code asks for the cookie in a hidden box and stores it in your OS keychain — it's never written to the file, and <code>-e PERPLEXITY_COOKIES</code> (no value) hands it to the container from the environment, so it never appears on a command line either. <code>--rm -i</code> means the container only exists while VS Code is actually using the tool.</div>
         <div class="snippet-wrap"><button class="copy" onclick="copyText(this.nextElementSibling.textContent, this)">Copy</button><pre class="snippet">${esc(PERPLEXITY_MCP_JSON)}</pre></div>
       </div></div>
       <div class="setup-step"><div class="st todo">3</div><div style="flex:1">
         <b>Use it in Copilot Agent mode</b>
-        <div class="detail">Open Copilot Chat → Agent mode. On first use it asks for the cookie — from perplexity.ai → F12 → Application → Cookies, enter <code>{"next-auth.session-token": "..."}</code>. No cookie? It still works in free mode.</div>
+        <div class="detail">Open Copilot Chat → Agent mode. On first use it asks for the cookie — from perplexity.ai → F12 → Application → Cookies, enter <code>{"next-auth.session-token": "..."}</code>. No cookie? It still works in free mode — a safe way to judge the tool before trusting it with a login. Your kill switch: perplexity.ai → settings → sign out of all sessions (stopping the container does <b>not</b> invalidate the cookie).</div>
       </div></div>
     </div>
   </div>`;
@@ -660,6 +693,9 @@ function renderWrappers() {
     let lane = cfg.lanes.find((l) => l.id === 'gemini-web');
     if (!lane) { lane = { ...GEMINI_WEB_LANE }; cfg.lanes.push(lane); }
     lane.enabled = e.target.checked;
+    // Persist the helper password shown in step 1's env file, so the gateway
+    // sends it as a Bearer token and the helper can require it.
+    if (lane.enabled && !lane.apiKey) lane.apiKey = GEMINI_WEB_HELPER_KEY;
     try { await saveConfig(); } catch (err) { alert('Could not save: ' + err.message); }
     renderWrappers(); refreshHealth();
   });

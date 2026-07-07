@@ -1,18 +1,38 @@
-# Secrets & machine-local state — NEVER commit these.
-# config.json holds the per-install admin token and any lane API keys.
+# ── Secrets & machine-local state — NEVER commit these ──────────────────────
+
+# Holds the per-install admin token and any lane API keys.
 config.json
-# Logs hold the admin token (startup banner) and your request audit trail.
+
+# Logs hold the admin token (printed in the startup banner) and your full
+# request audit trail. Keep the directory (via .gitkeep) but ignore contents.
 logs/*
 !logs/.gitkeep
+
 # Background-process bookkeeping written by start.sh.
 .gateway.pid
 
-# Dependencies (there are none for the gateway, but keep this for safety).
+# Claude Code project-local config — the setup docs tell you to put your live
+# ANTHROPIC_API_KEY / gateway key here, so it must never be committed.
+.claude/settings.local.json
+.claude/settings.json
+
+# Other tool configs that may embed keys/cookies if you generate them here.
+.env
+.env.*
+opencode.json
+.vscode/mcp.json
+
+# Security-scan reports (may contain internal pipeline URLs / findings).
+SECURITY-*.md
+
+# ── Dependencies & build artifacts ──────────────────────────────────────────
+
+# The gateway has zero npm deps, but keep this for safety / any tooling.
 node_modules/
 
-# Python wrapper artifacts, if you clone one into this tree.
+# Python wrapper artifacts, if you clone one (e.g. Gemini/Perplexity) in-tree.
 __pycache__/
 *.pyc
 
-# OS cruft.
+# ── OS cruft ────────────────────────────────────────────────────────────────
 .DS_Store

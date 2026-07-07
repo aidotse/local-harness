@@ -2,11 +2,30 @@
 // Code user-profile MCP config to make it available everywhere) to give
 // Copilot Agent mode a Perplexity search tool.
 //
+// This runs the helper inside Docker. Build the image first, from a copy of
+// the code you've actually looked at (it's unofficial community code that
+// will hold a full-account cookie):
+//
+//   git clone https://github.com/helallao/perplexity-ai.git && cd perplexity-ai
+//   printf 'FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir ".[mcp]"\nENTRYPOINT ["perplexity-mcp"]\n' > Dockerfile
+//   docker build -t perplexity-mcp:local .
+//
+// Updates only happen when you git pull and rebuild — re-skim the diff when
+// you do. (Alternative without Docker: pip install -e ".[mcp]" in that folder
+// and set "command" to "perplexity-mcp" with no args — less isolated.)
+//
+// How the cookie flows: VS Code prompts for it in a masked box and keeps it
+// in your OS keychain — never in this file. "-e PERPLEXITY_COOKIES" with no
+// value forwards it from the environment VS Code gives the docker client, so
+// it never appears on a command line. "--rm -i" ties the container's lifetime
+// to VS Code actually using the tool, and removes it without a trace after.
+//
 // This does NOT go through local-harness/the gateway — MCP servers are
 // configured per-editor, so this traffic won't appear in logs/audit.jsonl.
-// See README.md "Path 4" for full setup and why this carries more risk than
-// the claude/gemini lanes (it uses a full-account browser session cookie,
-// not a scoped token).
+// In Agent mode Copilot invokes the tool on its own, so text it reads can
+// steer it into sending fragments of your code to Perplexity with no local
+// record. Prefer a spare account; stopping the container does NOT invalidate
+// the cookie — the kill switch is "sign out of all sessions" on perplexity.ai.
 {
   "inputs": [
     {
@@ -19,7 +38,8 @@
   "servers": {
     "perplexity": {
       "type": "stdio",
-      "command": "perplexity-mcp",
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "PERPLEXITY_COOKIES", "perplexity-mcp:local"],
       "env": {
         "PERPLEXITY_COOKIES": "${input:perplexity-cookies}"
       }

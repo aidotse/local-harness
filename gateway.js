@@ -1217,7 +1217,37 @@ async function handleAdmin(req, res) {
 // ---------------------------------------------------------------------------
 // Server
 
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+
+// Defense against DNS rebinding: a malicious site can point its own hostname
+// at 127.0.0.1, making its requests to this gateway "same-origin" from the
+// browser's point of view — which bypasses CORS entirely and lets the page
+// READ responses (including whatever a browser-session lane's backend
+// returns). The one thing a rebinding attacker can't forge is the Host
+// header: it carries the attacker's hostname, while every legitimate local
+// client addresses this server as localhost/127.0.0.1/[::1] (or the exact
+// configured host). Checked on every route, not just /admin, because chat
+// lanes are deliberately token-free.
+function isTrustedRequestHost(req) {
+  const host = req.headers.host;
+  if (!host) return true; // browsers always send Host; don't break bare HTTP/1.0 clients
+  let hostname;
+  try {
+    hostname = new URL(`http://${host}`).hostname;
+  } catch {
+    return false;
+  }
+  const bare = hostname.replace(/^\[|\]$/g, ''); // URL keeps [] around IPv6
+  return LOOPBACK_HOSTS.has(bare) || bare === config.host;
+}
+
 const server = http.createServer((req, res) => {
+  if (!isTrustedRequestHost(req)) {
+    return jsonResponse(res, 421, {
+      error: `blocked: Host header "${req.headers.host}" is not this gateway's address — this looks like a DNS-rebinding attempt, not a local client`,
+    });
+  }
+
   const urlPath = req.url.split('?')[0];
 
   if (urlPath === '/' || urlPath === '/index.html') {
@@ -1252,8 +1282,6 @@ const server = http.createServer((req, res) => {
   }
   proxyRequest(req, res, match.lane, match.viaDefault);
 });
-
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
 server.listen(config.port, config.host, () => {
   console.log('');
