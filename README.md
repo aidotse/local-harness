@@ -1,36 +1,37 @@
 # local-harness
 
-Think of local-harness as a **power strip for AI models**. You plug models in
-on one side — a model running on your own PC, your Claude subscription, your
-Gemini subscription — and plug your coding tools in on the other — VS Code /
-Copilot Chat, Claude Code, OpenCode. Every tool can then use every model,
-through one single address on your machine.
+One local endpoint for many AI model sources (Claude CLI, Gemini CLI, local
+OpenAI-compatible servers like Ollama/vLLM/LM Studio), usable from tools like
+VS Code/Copilot Chat, Claude Code, and OpenCode.
 
-**Why?**
+## Start here (2 minutes)
 
-- **Privacy** — everything runs on `127.0.0.1` (your own machine). Nothing is
-  reachable from your network, and no third-party proxy ever holds your
-  passwords or session tokens.
-- **No API bills** — your flat-rate subscriptions (claude.ai Pro/Max, Gemini
-  Pro/Ultra) are used through their official command-line apps, not through
-  pay-per-token API keys.
-- **One audit trail** — every request from every tool is recorded to
-  `logs/audit.jsonl`, so you always know what was asked and where it went.
+1. Start the gateway:
+   ```bash
+   node gateway.js
+   # or run in background:
+   ./start.sh
+   ```
+2. Open the **Admin GUI** URL printed in the terminal (includes `?token=...`).
+3. In the dashboard, configure one lane (Claude, Gemini, or Local), then copy
+   the generated client JSON into your tool.
 
-**Zero dependencies** — nothing to `npm install`. The gateway uses only Node's
-built-in modules, so the supply-chain attack surface is zero. Streaming (SSE)
-passes through untouched, so live token-by-token chat works in every client.
+If you want details for each step, continue with [Quick start](#quick-start-two-steps)
+and the lane sections below.
 
-> **If you can copy-paste into a terminal, you can do this.** This guide
-> assumes no prior knowledge. There's a [glossary](#glossary) at the end for
-> any unfamiliar words.
+## Why local-harness
+
+- **Private by default**: binds to `127.0.0.1` only.
+- **No API key billing required** for Claude/Gemini subscription lanes.
+- **Single audit log** in `logs/audit.jsonl` across all tools.
+- **Zero npm dependencies** in the gateway itself (Node built-ins only).
 
 ---
 
 ## Contents
 
-- [What you need](#what-you-need)
 - [Quick start](#quick-start-two-steps) — start the gateway, open the dashboard
+- [What you need](#what-you-need)
 - **Dashboard sections** — mirrors the GUI:
   - [Your AI subscriptions](#your-ai-subscriptions) — Claude, Gemini
   - [Your local model](#your-local-model) — Ollama, vLLM, LM Studio
