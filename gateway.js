@@ -186,7 +186,16 @@ function openLoginTerminal(cmd) {
   try {
     let child;
     if (process.platform === 'darwin') {
-      const script = `tell application "Terminal"\n  activate\n  do script "${cmd.replace(/[\\"]/g, '\\$&')}"\nend tell`;
+      // Two layers of quoting, deliberately: `.replace(...)` escapes `cmd`
+      // just enough to embed it as an AppleScript string *literal* (backslash
+      // and double-quote are the only characters that mean anything at that
+      // level). `quoted form of` is a second, separate step — it's AppleScript's
+      // own operator for producing a shell-safe single-quoted string, and runs
+      // on the *value* of that literal, not its source text. That second layer
+      // is what actually protects `do script` (which really does execute a
+      // shell command line inside Terminal.app) from any shell metacharacter,
+      // not just the two this file happens to escape for the outer literal.
+      const script = `tell application "Terminal"\n  activate\n  do script quoted form of "${cmd.replace(/[\\"]/g, '\\$&')}"\nend tell`;
       child = spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' });
     } else if (process.platform === 'win32') {
       child = spawn('cmd', ['/c', 'start', 'cmd', '/k', cmd], { detached: true, stdio: 'ignore' });
@@ -1282,8 +1291,14 @@ async function handleAdmin(req, res) {
 
   if (route === 'GET /admin' || route === 'GET /admin/') {
     try {
+      // adminToken is always machine-generated hex (crypto.randomBytes(...).toString('hex'))
+      // and can't be set to arbitrary content through any API — but escaping "<" makes that
+      // a structural guarantee rather than an incidental one: JSON.stringify alone does not
+      // escape "</script>", so embedding an un-escaped value here would let a value
+      // containing that sequence break out of the inline script.
+      const tokenJson = JSON.stringify(config.adminToken).replace(/</g, '\\u003c');
       const html = fs.readFileSync(path.join(PUBLIC_DIR, 'admin.html'), 'utf8')
-        .replace('</head>', `<script>window.__ADMIN_TOKEN__ = ${JSON.stringify(config.adminToken)};</script></head>`);
+        .replace('</head>', `<script>window.__ADMIN_TOKEN__ = ${tokenJson};</script></head>`);
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(html);
     } catch {

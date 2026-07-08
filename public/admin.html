@@ -487,7 +487,7 @@ function localCard(lane) {
     <div class="form-grid">
       <div><label>Name (anything you like)</label><input type="text" data-lf="name" value="${esc(lane.name || '')}" placeholder="My local model"></div>
       <div><label>Address of the model server</label><input type="text" data-lf="target" value="${esc(lane.target || '')}" placeholder="http://localhost:11434"></div>
-      <div class="full"><label>API key <span class="muted">(only if your server needs one — usually leave blank)</span></label><input type="password" data-lf="apiKey" value="${esc(lane.apiKey || '')}" placeholder=""></div>
+      <div class="full"><label>API key <span class="muted">(only if your server needs one — usually leave blank)</span></label><input type="password" data-lf="apiKey" value="" placeholder="${lane.apiKey ? 'a key is set — leave blank to keep it' : ''}" autocomplete="off"></div>
       <div class="full"><label>Models <span class="muted">(comma-separated — “Test connection” fills this in automatically if the server supports <code>/v1/models</code>; add or edit by hand otherwise)</span></label><input type="text" data-lf="models" value="${esc((lane.models || []).join(', '))}" placeholder="e.g. llama3.1, llama3.1:70b"></div>
       ${(lane.models || []).length ? `<div class="full"><label>Default model <span class="muted">(used in the curl snippet, and as the fallback when a tool requests a model this server doesn't have)</span></label>
         <select data-lf="defaultModel">${(lane.models || []).map((m) => `<option value="${esc(m)}" ${lane.defaultModel === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></div>` : ''}
@@ -518,6 +518,13 @@ function renderLocalModels() {
       if (f === 'models') {
         lane.models = el.value.split(',').map((s) => s.trim()).filter(Boolean);
         if (lane.models.length && !lane.models.includes(lane.defaultModel)) lane.defaultModel = lane.models[0];
+      } else if (f === 'apiKey') {
+        // Masked field: never pre-filled with the real secret (a plaintext
+        // key sitting in the DOM's value attribute is readable by any
+        // same-origin script or browser extension). Blank on save means
+        // "keep the existing key" — there's no way to type "no change"
+        // otherwise once the field starts empty.
+        if (el.value) lane.apiKey = el.value;
       } else {
         lane[f] = el.type === 'checkbox' ? el.checked : el.value;
       }
@@ -655,7 +662,7 @@ function laneCard(lane, i) {
       <div><label>Models (comma-separated)</label><input type="text" data-f="models" value="${esc((lane.models || []).join(', '))}"></div>`
     : `
       <div><label>Backend address</label><input type="text" data-f="target" value="${esc(lane.target || '')}"></div>
-      <div><label>API key (optional)</label><input type="password" data-f="apiKey" value="${esc(lane.apiKey || '')}"></div>
+      <div><label>API key (optional)</label><input type="password" data-f="apiKey" value="" placeholder="${lane.apiKey ? 'a key is set — leave blank to keep it' : ''}" autocomplete="off"></div>
       <div><label>Health check path</label><input type="text" data-f="healthPath" value="${esc(lane.healthPath || '/v1/models')}"></div>`;
   return `<div class="card" data-i="${i}">
     <div class="card-head">
@@ -685,6 +692,10 @@ function renderLanes() {
       const f = e.target.dataset.f;
       const lane = cfg.lanes[i];
       if (f === 'models') lane.models = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
+      // Masked field (see laneCard): blank means "keep the existing key" —
+      // it's never pre-filled with the real secret, so an empty input isn't
+      // an intentional clear.
+      else if (f === 'apiKey') { if (e.target.value) lane.apiKey = e.target.value; }
       else lane[f] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
       if (f === 'type') {
         if (lane.type === 'claude-cli') { lane.command = lane.command || 'claude'; if (!lane.models?.length) { lane.models = ['sonnet','opus','haiku']; lane.defaultModel = 'sonnet'; } }

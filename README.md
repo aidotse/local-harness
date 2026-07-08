@@ -398,13 +398,32 @@ local-harness is localhost-only and intended for one user on one machine.
 - CLI lanes use argv `spawn()` (no shell interpretation)
 - `config.json` is owner-only (`0600`)
 - Audit log stores metadata only (not prompts/responses)
-- GUI escapes dynamic values before rendering
+- GUI escapes dynamic values before rendering, and never renders a saved API
+  key back into the page — the field starts blank; leaving it blank on save
+  keeps the existing key rather than clearing it
+- The "sign in to a CLI" login button quotes the lane's command at both the
+  AppleScript-literal level and the shell level (`quoted form of`), not just
+  the former
 
 **Important limits:**
 
 - Anyone with your admin token can modify lane commands
 - No TLS on loopback (do not expose by rebinding host)
 - Provider ToS may disallow routing consumer subscriptions through third-party tools
+
+**On automated scans:** this project has been through a SAST + AI deep-review
+pass. Every finding was individually re-verified against actual code/runtime
+behavior — including live-testing the one that looked most serious (a claimed
+SSRF via URL manipulation, disproven by running the exact attack against the
+real gateway with a throwaway listener: the proxy's outbound host comes from
+the admin-configured lane target, never from the request path, so there was
+nothing to redirect). Most findings were generic pattern-matches that don't
+hold up once you check what the flagged code actually does — a `command`
+field that's already blocklisted for shell metacharacters and never reaches a
+shell, a `process.env` passthrough with no attacker-controlled input, a test
+fixture literally named `test-admin-token-not-secret`. Take any single
+automated scan's severity labels with real skepticism; re-verify before
+acting on them.
 
 ---
 
